@@ -58,6 +58,8 @@
 
 ### （二）核心接口分类
 
+**(示例，需修改)**
+
 | 业务模块     | 核心接口示例                                                 |
 | ------------ | ------------------------------------------------------------ |
 | 用户模块     | 1. `/api/teaching-eval/user/login`（POST：用户登录，获取 Token）；2. `/api/teaching-eval/user/info`（GET：查询当前用户信息及权限）；3. `/api/teaching-eval/user/update`（PUT：更新用户基础信息）； |
@@ -129,7 +131,7 @@ git checkout feature/timetable-sync
 git checkout -b feature/feedback-query  # 功能分支：反馈查询功能
 git checkout -b fix/ranking-calculation  # 修复分支：排名计算错误问题
 
-# 命名规范：
+# 命名规范(无强制)：
 # - 功能分支：feature/xxx（xxx为功能描述，小写+连字符）
 # - 修复分支：fix/xxx（xxx为问题描述，小写+连字符）
 # - 文档分支：docs/xxx（xxx为文档内容，如接口文档更新）

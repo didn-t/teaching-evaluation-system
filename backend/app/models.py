@@ -42,8 +42,9 @@ class User(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='用户ID')
     user_no = Column(String(32), unique=True, nullable=False, comment='工号/账号')
     user_name = Column(String(64), nullable=False, comment='用户名')
-    role_type = Column(Integer, nullable=False, comment='角色类型 1-普通教师 2-督导 3-学院管理员 4-学校管理员')
-    college_id = Column(BigInteger, ForeignKey('college.id'), nullable=False, comment='所属学院ID')
+    role_type = Column(Integer, nullable=False, default=1,
+                       comment='角色类型 1-普通教师 2-督导 3-学院管理员 4-学校管理员')
+    college_id = Column(BigInteger, ForeignKey('college.id'), nullable=True, comment='所属学院ID')
     password = Column(String(128), nullable=False, comment='密码（加密存储）')
     create_time = Column(DateTime, default=datetime.now, comment='创建时间')
     update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
@@ -57,7 +58,7 @@ class User(Base):
                                       back_populates="teach_teacher")
     listen_evaluations = relationship("TeachingEvaluation", foreign_keys="[TeachingEvaluation.listen_teacher_id]",
                                       back_populates="listen_teacher")
-    permissions = relationship("UserPermission", back_populates="user")
+    permissions = relationship("UserPermission", foreign_keys="[UserPermission.user_id]", back_populates="user")
     user_permissions = relationship("UserPermission", foreign_keys="[UserPermission.operator_id]",
                                     back_populates="operator")
 
@@ -66,6 +67,13 @@ class User(Base):
         stmt = select(cls).where(cls.user_no == user_no)
         result = await session.execute(stmt)
         return result.scalars().first()
+
+    @classmethod
+    async def create(cls, db, param):
+        user = User(**param)
+        db.add(user)
+        await db.commit()
+        return user
 
 
 class UserPermission(Base):
@@ -81,7 +89,7 @@ class UserPermission(Base):
     is_delete = Column(Boolean, default=False, comment='逻辑删除 0-正常 1-删除')
 
     # 关联关系
-    user = relationship("User", back_populates="permissions")
+    user = relationship("User", foreign_keys=[user_id], back_populates="permissions")
     permission = relationship("PermissionDict", back_populates="user_permissions")
     operator = relationship("User", foreign_keys=[operator_id], back_populates="user_permissions")
 

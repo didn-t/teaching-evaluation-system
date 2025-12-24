@@ -29,7 +29,3 @@ async def get_db():
             await session.close()
 
 
-async def create_tables():
-    """创建所有数据库表"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)

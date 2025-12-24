@@ -1,15 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
-from dotenv import load_dotenv
 import os
 import uvicorn
-from app.database import create_tables
-import asyncio
-
-# 加载环境变量
-load_dotenv()
+from fastapi import Depends
+from sqlalchemy.orm import Session
 
 
 
@@ -33,26 +27,35 @@ app.add_middleware(
 # 根路由
 @app.get("/")
 async def read_root():
-    # 启动时自动创建数据库表
-    await create_tables()
     return {"message": "Welcome to Teaching Evaluation System API", "version": os.getenv('APP_VERSION', '1.0.0')}
 
-@app.on_event("startup")
-async def startup_event():
-    # 应用启动时自动创建数据库表
-    await create_tables()
 
-# 健康检查路由
+# 导入路由
+from app.api.v1.teaching_eval import user as teaching_eval_user
+from app.api.v1.teaching_eval import eval as teaching_eval_api
+
+app.include_router(teaching_eval_user.router, prefix="/api/v1/teaching-eval/user", tags=["用户认证"])
+app.include_router(teaching_eval_api.router, prefix="/api/v1/teaching-eval/eval", tags=["教学评价"])
+
+
+# 健康检查接口
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
 
-# 导入路由
-from app.api import auth, evaluation
 
-# 注册路由
-app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
-app.include_router(evaluation.router, prefix="/api/evaluation", tags=["评教"])
+from app.database import get_db
+@app.get("/health/db")
+def database_health_check(db: Session = Depends(get_db)):
+    """
+    简单的数据库连接检查
+    """
+    try:
+        # 执行简单查询测试连接
+        db.execute("SELECT 1")
+        return {"status": "healthy", "database": "connected"}
+    except Exception:
+        return {"status": "unhealthy", "database": "disconnected"}, 503
 
 
 if __name__ == "__main__":

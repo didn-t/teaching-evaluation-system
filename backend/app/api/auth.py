@@ -31,13 +31,7 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-# 根据用户名获取用户
-async def get_user(db: AsyncSession, username: str):
-    result = await db.execute(select(User).where(User.username == username))
-    try:
-        return result.scalar_one()
-    except NoResultFound:
-        return None
+
 
 # 验证用户
 def authenticate_user(user: User, password: str):

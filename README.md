@@ -42,12 +42,69 @@
 
 ## 二、技术方案
 
-| 技术层面 | 选型说明                                                     |
-| -------- | ------------------------------------------------------------ |
-| 前端技术 | UniApp /微信小程序原生                                       |
-| 后端技术 | 方案 1：Python 技术栈（Django/Flask + MySQL/PostgreSQL；方案 2：云函数，云数据库Nodejs+MongoDB |
+| 技术层面 | 选型说明                                         |
+| -------- | ------------------------------------------------ |
+| 前端技术 | 小程序：UniApp                                   |
+| 后端技术 | Python 3.10.11；FastAPI 0.112.4；MySQL  8.0.36； |
+| 其他依赖 | 详细查看requirements.txt                         |
+
+后端目录结构
+```
+backend/
+├── app/
+│   ├── api/           # API 路由模块
+│   │   ├── user.py    # 用户管理
+│   │   ├── course.py  # 课程管理
+│   │   └── ...
+│   ├── models.py      # 数据库模型
+│   ├── schemas.py     # 数据验证模型
+│   └── utils/         # 工具函数
+├── alembic/           # 数据库迁移文件
+├── main.py            # 主应用文件
+├── requirements.txt   # 依赖包
+└── .env               # 环境配置
+```
+
+
+
+后端依赖一键安装命令
+
+```bash
+pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+```
+
+#### backend目录下有文件:requirements.txt；.env
+
+**requirements.txt文件存放项目依赖版本**
+
+ **.env文件 存放数据库配置等敏感信息**
+
+.env例如：
+
+```
+# MySQL 数据库配置
+MYSQL_USER=root
+MYSQL_PASSWORD=your_mysql_password
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_DB=teaching_evaluation_system
+
+# JWT 配置
+SECRET_KEY=your_secret_key_here
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# 应用配置
+APP_NAME='Teaching Evaluation System'
+APP_VERSION=1.0.0
+DEBUG=True
+```
+
+
 
 ## 三、API 接口说明
+
+**FastAPI自动生成**
 
 ### （一）接口设计原则
 
@@ -58,7 +115,7 @@
 
 ### （二）核心接口分类
 
-**(示例，需修改)**
+
 
 | 业务模块     | 核心接口示例                                                 |
 | ------------ | ------------------------------------------------------------ |

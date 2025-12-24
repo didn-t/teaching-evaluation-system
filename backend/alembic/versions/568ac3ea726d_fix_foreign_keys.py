@@ -1,8 +1,8 @@
-"""initial tables
+"""fix/foreign_keys
 
-Revision ID: b3d3fd43cf65
+Revision ID: 568ac3ea726d
 Revises: 
-Create Date: 2025-12-24 19:33:43.580355
+Create Date: 2025-12-25 01:04:35.890557
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'b3d3fd43cf65'
+revision: str = '568ac3ea726d'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -65,11 +65,10 @@ def upgrade() -> None:
     sa.Column('role_type', sa.Integer(), nullable=False, comment='角色类型 1-普通教师 2-督导 3-学院管理员 4-学校管理员'),
     sa.Column('college_id', sa.BigInteger(), nullable=False, comment='所属学院ID'),
     sa.Column('password', sa.String(length=128), nullable=False, comment='密码（加密存储）'),
-    sa.Column('token', sa.String(length=256), nullable=True, comment='登录令牌'),
-    sa.Column('token_expire_time', sa.DateTime(), nullable=True, comment='令牌过期时间'),
     sa.Column('create_time', sa.DateTime(), nullable=True, comment='创建时间'),
     sa.Column('update_time', sa.DateTime(), nullable=True, comment='更新时间'),
     sa.Column('is_delete', sa.Boolean(), nullable=True, comment='逻辑删除 0-正常 1-删除'),
+    sa.Column('wx_openid', sa.String(length=64), nullable=True, comment='微信openid'),
     sa.ForeignKeyConstraint(['college_id'], ['college.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('user_no')

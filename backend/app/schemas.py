@@ -7,18 +7,21 @@ from typing import Optional, List, Dict, Any
 class UserBase(BaseModel):
     username: str
     name: str
-    role: str
     college: Optional[str] = None
 
 
-class UserCreate(UserBase):
+class UserCreate(BaseModel):
+    user_no: str  # 学号 / 工号 / 账号
+    user_name: str
     password: str
+    role_type: int = 1
+    college_id: int | None = None
 
 
 class UserUpdate(BaseModel):
-    name: Optional[str] = None
-    password: Optional[str] = None
-    college: Optional[str] = None
+    user_name: Optional[str] = None
+    role_type: Optional[int] = None
+    college_id: Optional[int] = None
 
 
 class UserResponse(UserBase):
@@ -29,10 +32,12 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
 
+
 # 登录表单
 class LoginForm(BaseModel):
-    user_no: str          # 学号 / 工号 / 账号
+    user_no: str  # 学号 / 工号 / 账号
     password: str
+
 
 # 认证相关模型
 class Token(BaseModel):

@@ -1,13 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 import os
 import uvicorn
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
-# 加载环境变量
-load_dotenv()
+
 
 # 初始化 FastAPI 应用
 app = FastAPI(

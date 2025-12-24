@@ -1,7 +1,6 @@
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, Boolean, JSON, DECIMAL, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, Boolean, JSON, DECIMAL, ForeignKey, select
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from sqlalchemy.sql import func
 from app.base import Base
 
 
@@ -46,8 +45,6 @@ class User(Base):
     role_type = Column(Integer, nullable=False, comment='角色类型 1-普通教师 2-督导 3-学院管理员 4-学校管理员')
     college_id = Column(BigInteger, ForeignKey('college.id'), nullable=False, comment='所属学院ID')
     password = Column(String(128), nullable=False, comment='密码（加密存储）')
-    token = Column(String(256), comment='登录令牌')
-    token_expire_time = Column(DateTime, comment='令牌过期时间')
     create_time = Column(DateTime, default=datetime.now, comment='创建时间')
     update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
     is_delete = Column(Boolean, default=False, comment='逻辑删除 0-正常 1-删除')
@@ -63,6 +60,12 @@ class User(Base):
     permissions = relationship("UserPermission", back_populates="user")
     user_permissions = relationship("UserPermission", foreign_keys="[UserPermission.operator_id]",
                                     back_populates="operator")
+
+    @classmethod
+    async def get_by_user_no(cls, session, user_no: str):
+        stmt = select(cls).where(cls.user_no == user_no)
+        result = await session.execute(stmt)
+        return result.scalars().first()
 
 
 class UserPermission(Base):

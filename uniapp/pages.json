@@ -1,0 +1,116 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/login",
+      "style": {
+        "navigationBarTitleText": "评教系统登录"
+      }
+    },
+    {
+      "path": "pages/teacher/index",
+      "style": {
+        "navigationBarTitleText": "教师端-评价记录"
+      }
+    },
+    {
+      "path": "pages/teacher/evaluate",
+      "style": {
+        "navigationBarTitleText": "教师端-进行评教"
+      }
+    },
+    {
+      "path": "pages/teacher/listen",
+      "style": {
+        "navigationBarTitleText": "教师端-听课评价"
+      }
+    },
+    {
+      "path": "pages/college/index",
+      "style": {
+        "navigationBarTitleText": "学院管理"
+      }
+    },
+    {
+      "path": "pages/college/statistics",
+      "style": {
+        "navigationBarTitleText": "学院统计分析"
+      }
+    },
+    {
+      "path": "pages/college/data",
+      "style": {
+        "navigationBarTitleText": "学院数据管理"
+      }
+    },
+    {
+      "path": "pages/school/index",
+      "style": {
+        "navigationBarTitleText": "系统管理"
+      }
+    },
+    {
+      "path": "pages/school/statistics",
+      "style": {
+        "navigationBarTitleText": "统计分析"
+      }
+    },
+    {
+      "path": "pages/school/config",
+      "style": {
+        "navigationBarTitleText": "系统配置"
+      }
+    },
+    {
+      "path": "pages/school/data",
+      "style": {
+        "navigationBarTitleText": "数据管理"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "评教系统",
+    "navigationBarBackgroundColor": "#F8F8F8",
+    "backgroundColor": "#F8F8F8"
+  },
+  "uniIdRouter": {},
+  "tabBar": {
+    "color": "#7A7E83",
+    "selectedColor": "#4f46e5",
+    "borderStyle": "black",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {
+        "pagePath": "pages/teacher/index",
+        "iconPath": "static/icon/home.png",
+        "selectedIconPath": "static/icon/home-active.png",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/teacher/evaluate",
+        "iconPath": "static/icon/write.png",
+        "selectedIconPath": "static/icon/write-active.png",
+        "text": "评教"
+      }
+    ]
+  },
+  "condition": {
+    "list": [
+      {
+        "name": "teacher",
+        "path": "pages/teacher/index",
+        "query": ""
+      },
+      {
+        "name": "college_admin",
+        "path": "pages/college/index",
+        "query": ""
+      },
+      {
+        "name": "school_admin",
+        "path": "pages/school/index",
+        "query": ""
+      }
+    ]
+  }
+}

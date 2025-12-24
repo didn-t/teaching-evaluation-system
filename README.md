@@ -84,7 +84,7 @@ pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 ```
 # MySQL 数据库配置
 MYSQL_USER=root
-MYSQL_PASSWORD=your_mysql_password
+MYSQL_PASSWORD=a
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 MYSQL_DB=teaching_evaluation_system

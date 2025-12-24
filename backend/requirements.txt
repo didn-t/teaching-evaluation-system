@@ -5,3 +5,5 @@ passlib~=1.7.4
 python-dotenv~=1.2.1
 pydantic~=2.12.5
 uvicorn~=0.40.0
+pymysql
+alembic

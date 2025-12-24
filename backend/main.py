@@ -5,21 +5,13 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from dotenv import load_dotenv
 import os
 import uvicorn
+from app.database import create_tables
+import asyncio
 
 # 加载环境变量
 load_dotenv()
 
-# 数据库配置
-DATABASE_URL = f"mysql+asyncmy://{os.getenv('MYSQL_USER')}:{os.getenv('MYSQL_PASSWORD')}@{os.getenv('MYSQL_HOST')}:{os.getenv('MYSQL_PORT')}/{os.getenv('MYSQL_DB')}"
 
-# 创建异步引擎
-engine = create_async_engine(DATABASE_URL)
-
-# 创建异步会话工厂
-AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-# 创建基础模型类
-Base = declarative_base()
 
 # 初始化 FastAPI 应用
 app = FastAPI(
@@ -37,22 +29,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 依赖项：获取数据库会话
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
 
 # 根路由
 @app.get("/")
-def read_root():
+async def read_root():
+    # 启动时自动创建数据库表
+    await create_tables()
     return {"message": "Welcome to Teaching Evaluation System API", "version": os.getenv('APP_VERSION', '1.0.0')}
+
+@app.on_event("startup")
+async def startup_event():
+    # 应用启动时自动创建数据库表
+    await create_tables()
 
 # 健康检查路由
 @app.get("/health")
@@ -60,10 +48,11 @@ def health_check():
     return {"status": "healthy"}
 
 # 导入路由
-from app.api import  auth
+from app.api import auth, evaluation
 
 # 注册路由
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
+app.include_router(evaluation.router, prefix="/api/evaluation", tags=["评教"])
 
 
 if __name__ == "__main__":

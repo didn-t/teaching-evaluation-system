@@ -1,23 +1,18 @@
-from lib2to3.pytree import Base
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
-
 
 # 在 env.py 中添加模型导入
 from app.models import *  # 导入所有模型
 
 import sys
-import os
 from pathlib import Path
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-
 
 from sqlalchemy import engine_from_config
 
@@ -35,6 +30,7 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 
 target_metadata = Base.metadata
+
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -76,15 +72,11 @@ def run_migrations_online() -> None:
     from dotenv import load_dotenv
     import os
     from pathlib import Path
-    
-    # 加载环境变量
-    project_root = Path(__file__).parent.parent
-    env_path = project_root / ".env"
-    load_dotenv(dotenv_path=env_path, encoding='utf-8')
-    
+
+    from app.core.config import MYSQL_USER, MYSQL_PASSWORD, MYSQL_HOST, MYSQL_PORT, MYSQL_DB
     # 构建数据库URL
-    DATABASE_URL = f"mysql+pymysql://{os.getenv('MYSQL_USER')}:{os.getenv('MYSQL_PASSWORD')}@{os.getenv('MYSQL_HOST')}:{os.getenv('MYSQL_PORT')}/{os.getenv('MYSQL_DB')}"
-    
+    DATABASE_URL = f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

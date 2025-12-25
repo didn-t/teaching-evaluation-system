@@ -1,18 +1,18 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import os
+from app.core.config import APP_NAME, APP_VERSION, DEBUG
 import uvicorn
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
 
-
 # 初始化 FastAPI 应用
 app = FastAPI(
-    title=os.getenv('APP_NAME', 'Teaching Evaluation System'),
-    version=os.getenv('APP_VERSION', '1.0.0'),
+    title=APP_NAME,
+    version=APP_VERSION,
     description="南宁理工学院听课评教系统 API",
 )
+
 
 # 配置 CORS
 app.add_middleware(
@@ -27,7 +27,7 @@ app.add_middleware(
 # 根路由
 @app.get("/")
 async def read_root():
-    return {"message": "Welcome to Teaching Evaluation System API", "version": os.getenv('APP_VERSION', '1.0.0')}
+    return {"message": "Welcome to Teaching Evaluation System API", "version": APP_VERSION}
 
 
 # 导入路由
@@ -59,4 +59,4 @@ def database_health_check(db: Session = Depends(get_db)):
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=os.getenv('DEBUG', 'True').lower() == 'true')
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=DEBUG.lower() == 'true')

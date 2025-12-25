@@ -1,25 +1,23 @@
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Generic, TypeVar
+
+T = TypeVar("T")  # 泛型类型
 
 
 # 用户相关模型
 class UserBase(BaseModel):
-    username: str
-    name: str
-    college: Optional[str] = None
-
-
-class UserCreate(BaseModel):
     user_id: str  # 学号 / 工号 / 账号
-    user_name: str
     password: str
+
+
+class UserCreate(UserBase):
+    user_name: str
     college_id: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
     user_name: Optional[str] = None
-    role_type: Optional[int] = None
     college_id: Optional[int] = None
 
 
@@ -32,25 +30,33 @@ class UserResponse(UserBase):
         from_attributes = True
 
 
-# 登录表单
-class LoginForm(BaseModel):
-    user_id: str  # 学号 / 工号 / 账号
-    password: str
+class BaseResponse(BaseModel, Generic[T]):
+    """全局统一响应模型"""
+    # 状态码（自定义业务码，200表示成功，非200表示异常）
+    code: int
+    # 提示信息（成功时返回成功提示，失败时返回错误详情）
+    msg: str
+    # 业务数据（泛型类型，支持任意数据结构，无数据时为None）
+    data: Optional[T] = None
+    # 时间戳（统一返回秒级整数时间戳）
+    timestamp: int = int(datetime.now().timestamp())
+
+    class Config:
+        # 支持ORM对象序列化
+        from_attributes = True
 
 
 # 认证相关模型
 class Token(BaseModel):
     access_token: str
-    token_type: str = "bearer"
-    user: UserResponse
-    expire_time: datetime
+    expire_time: Optional[datetime] = None
 
 
 class TokenData(BaseModel):
-    user_id: int
     user_id: str
-    role_type: int
-    college_id: int
+    college_id: int | None
+    status: Optional[int] = 1
+    is_delete: Optional[bool] = 0
 
 
 # 学院相关模型

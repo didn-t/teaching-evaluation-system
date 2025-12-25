@@ -11,10 +11,9 @@ class UserBase(BaseModel):
 
 
 class UserCreate(BaseModel):
-    user_no: str  # 学号 / 工号 / 账号
+    user_id: str  # 学号 / 工号 / 账号
     user_name: str
     password: str
-    role_type: int = 1
     college_id: int | None = None
 
 
@@ -35,7 +34,7 @@ class UserResponse(UserBase):
 
 # 登录表单
 class LoginForm(BaseModel):
-    user_no: str  # 学号 / 工号 / 账号
+    user_id: str  # 学号 / 工号 / 账号
     password: str
 
 
@@ -49,7 +48,7 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     user_id: int
-    user_no: str
+    user_id: str
     role_type: int
     college_id: int
 
@@ -108,7 +107,7 @@ class PermissionDictResponse(PermissionDictBase):
 
 # 用户表相关模型
 class UserNewBase(BaseModel):
-    user_no: str
+    user_id: str
     user_name: str
     role_type: int  # 角色类型 1-普通教师 2-督导 3-学院管理员 4-学校管理员
     college_id: int

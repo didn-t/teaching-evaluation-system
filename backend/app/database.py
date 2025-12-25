@@ -14,8 +14,6 @@ DATABASE_URL = f"mysql+asyncmy://{os.getenv('MYSQL_USER')}:{os.getenv('MYSQL_PAS
 engine = create_async_engine(DATABASE_URL)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-# 导入Base，避免循环导入
-from app.base import Base
 
 async def get_db():
     async with AsyncSessionLocal() as session:

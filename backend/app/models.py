@@ -1,7 +1,104 @@
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, Boolean, JSON, DECIMAL, ForeignKey, select
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, Boolean, JSON, DECIMAL, ForeignKey, select, \
+    UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.base import Base
+
+
+class User(Base):
+    """用户表"""
+    __tablename__ = 'user'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='用户ID')
+    user_id = Column(String(32), unique=True, nullable=False, comment='工号/账号')
+    user_name = Column(String(64), nullable=False, comment='用户名')
+    college_id = Column(BigInteger, ForeignKey('college.id'), nullable=True, comment='所属学院ID')
+    password = Column(String(128), nullable=False, comment='密码（加密存储）')
+    status = Column(Integer, default=1, comment='状态 1-启用 0-禁用')
+    create_time = Column(DateTime, default=datetime.now, comment='创建时间')
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+    is_delete = Column(Boolean, default=False, comment='逻辑删除')
+    wx_openid = Column(String(64), comment='微信openid')
+    wx_session_key = Column(String(64), comment='用户session_key')
+    token = Column(String(64), comment='用户token')
+    refresh_token = Column(String(64), comment='用户refresh_token')
+    last_login_ip = Column(String(64), comment='最近登录IP')
+    nnlg_key = Column(String(128), comment='用户nnlg_key')
+
+    # 关联
+    college = relationship("College", back_populates="users")
+    roles = relationship("Role", secondary="user_role", back_populates="users")
+
+    def get_permissions(self):
+        """获取用户所有权限"""
+        permissions = set()
+        for role in self.roles:
+            if role.status == 1 and not role.is_delete:
+                for perm in role.permissions:
+                    if not perm.is_delete:
+                        permissions.add(perm.permission_code)
+        return permissions
+
+
+class Permission(Base):
+    """权限表"""
+    __tablename__ = 'permission'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='权限ID')
+    permission_code = Column(String(64), unique=True, nullable=False, comment='权限编码')
+    permission_name = Column(String(128), nullable=False, comment='权限名称')
+    permission_type = Column(Integer, nullable=False, comment='权限类型 1-查看 2-操作 3-导出 4-配置')
+    permission_description = Column(String(256), comment='权限描述')
+    create_time = Column(DateTime, default=datetime.now, comment='创建时间')
+    is_delete = Column(Boolean, default=False, comment='逻辑删除')
+
+    # 关联
+    roles = relationship("Role", secondary="role_permission", back_populates="permissions")
+
+
+class Role(Base):
+    """角色表"""
+    __tablename__ = 'role'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='角色ID')
+    role_code = Column(String(64), unique=True, nullable=False, comment='角色编码')
+    role_name = Column(String(128), nullable=False, comment='角色名称')
+    description = Column(String(256), comment='角色描述')
+    status = Column(Integer, default=1, comment='状态 1-启用 0-禁用')
+    create_time = Column(DateTime, default=datetime.now, comment='创建时间')
+    is_delete = Column(Boolean, default=False, comment='逻辑删除')
+
+    # 关联
+    users = relationship("User", secondary="user_role", back_populates="roles")
+    permissions = relationship("Permission", secondary="role_permission", back_populates="roles")
+
+
+class UserRole(Base):
+    """用户-角色关联表"""
+    __tablename__ = 'user_role'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey('user.id'), nullable=False)
+    role_id = Column(BigInteger, ForeignKey('role.id'), nullable=False)
+    create_time = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'role_id', name='uk_user_role'),
+    )
+
+
+class RolePermission(Base):
+    """角色-权限关联表"""
+    __tablename__ = 'role_permission'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    role_id = Column(BigInteger, ForeignKey('role.id'), nullable=False)
+    permission_id = Column(BigInteger, ForeignKey('permission.id'), nullable=False)
+    create_time = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('role_id', 'permission_id', name='uk_role_permission'),
+    )
 
 
 class College(Base):
@@ -18,80 +115,6 @@ class College(Base):
     users = relationship("User", back_populates="college")
     timetables = relationship("Timetable", back_populates="college")
     college_stats = relationship("CollegeEvaluationStat", back_populates="college")
-
-
-class PermissionDict(Base):
-    __tablename__ = 'permission_dict'
-
-    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='权限ID')
-    permission_code = Column(String(64), unique=True, nullable=False, comment='权限编码（唯一）')
-    permission_name = Column(String(128), nullable=False, comment='权限名称')
-    permission_type = Column(Integer, nullable=False, comment='权限类型 1-数据查看 2-操作管理 3-报表导出 4-系统配置')
-    parent_id = Column(BigInteger, default=0, comment='父权限ID（0=顶级权限）')
-    sort = Column(Integer, default=0, comment='排序值')
-    create_time = Column(DateTime, default=datetime.now, comment='创建时间')
-    is_delete = Column(Boolean, default=False, comment='逻辑删除 0-正常 1-删除')
-
-    # 关联关系
-    user_permissions = relationship("UserPermission", back_populates="permission")
-
-
-class User(Base):
-    __tablename__ = 'user'
-
-    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='用户ID')
-    user_no = Column(String(32), unique=True, nullable=False, comment='工号/账号')
-    user_name = Column(String(64), nullable=False, comment='用户名')
-    role_type = Column(Integer, nullable=False, default=1,
-                       comment='角色类型 1-普通教师 2-督导 3-学院管理员 4-学校管理员')
-    college_id = Column(BigInteger, ForeignKey('college.id'), nullable=True, comment='所属学院ID')
-    password = Column(String(128), nullable=False, comment='密码（加密存储）')
-    create_time = Column(DateTime, default=datetime.now, comment='创建时间')
-    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
-    is_delete = Column(Boolean, default=False, comment='逻辑删除 0-正常 1-删除')
-    wx_openid = Column(String(64), comment='微信openid')
-
-    # 关联关系
-    college = relationship("College", back_populates="users")
-    teach_timetables = relationship("Timetable", foreign_keys="[Timetable.teacher_id]", back_populates="teacher")
-    evaluation_records = relationship("TeachingEvaluation", foreign_keys="[TeachingEvaluation.teach_teacher_id]",
-                                      back_populates="teach_teacher")
-    listen_evaluations = relationship("TeachingEvaluation", foreign_keys="[TeachingEvaluation.listen_teacher_id]",
-                                      back_populates="listen_teacher")
-    permissions = relationship("UserPermission", foreign_keys="[UserPermission.user_id]", back_populates="user")
-    user_permissions = relationship("UserPermission", foreign_keys="[UserPermission.operator_id]",
-                                    back_populates="operator")
-
-    @classmethod
-    async def get_by_user_no(cls, session, user_no: str):
-        stmt = select(cls).where(cls.user_no == user_no)
-        result = await session.execute(stmt)
-        return result.scalars().first()
-
-    @classmethod
-    async def create(cls, db, param):
-        user = User(**param)
-        db.add(user)
-        await db.commit()
-        return user
-
-
-class UserPermission(Base):
-    __tablename__ = 'user_permission'
-
-    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='关联ID')
-    user_id = Column(BigInteger, ForeignKey('user.id'), nullable=False, comment='用户ID')
-    permission_id = Column(BigInteger, ForeignKey('permission_dict.id'), nullable=False,
-                           comment='权限ID（关联permission_dict）')
-    scope_college_ids = Column(JSON, comment='权限生效范围（如["1","2"]=仅1/2学院生效）')
-    create_time = Column(DateTime, default=datetime.now, comment='绑定时间')
-    operator_id = Column(BigInteger, ForeignKey('user.id'), nullable=False, comment='授权人ID（学校管理员）')
-    is_delete = Column(Boolean, default=False, comment='逻辑删除 0-正常 1-删除')
-
-    # 关联关系
-    user = relationship("User", foreign_keys=[user_id], back_populates="permissions")
-    permission = relationship("PermissionDict", back_populates="user_permissions")
-    operator = relationship("User", foreign_keys=[operator_id], back_populates="user_permissions")
 
 
 class Timetable(Base):
@@ -139,8 +162,8 @@ class TeachingEvaluation(Base):
 
     # 关联关系
     timetable = relationship("Timetable", back_populates="evaluations")
-    teach_teacher = relationship("User", foreign_keys=[teach_teacher_id], back_populates="evaluation_records")
-    listen_teacher = relationship("User", foreign_keys=[listen_teacher_id], back_populates="listen_evaluations")
+    teach_teacher = relationship("User", foreign_keys="[teach_teacher_id]", back_populates="evaluation_records")
+    listen_teacher = relationship("User", foreign_keys="[listen_teacher_id]", back_populates="listen_evaluations")
 
 
 class TeacherEvaluationStat(Base):

@@ -4,8 +4,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
-from app.schemas import UserBase, UserCreate, TokenData, BaseResponse
-from app.crud.teaching_eval import create_user, get_user, get_roles_name, get_user_permissions, get_role_permissions
+from app.schemas import UserBase, UserCreate, TokenData, BaseResponse, UserUpdate
+from app.crud.teaching_eval import create_user, get_user, get_roles_name, get_user_permissions, get_role_permissions, \
+    update_user
 from app.core import hash_password, create_access_token, verify_password, ACCESS_TOKEN_EXPIRE_MINUTES, verify_token
 
 router = APIRouter()
@@ -138,9 +139,18 @@ async def get_user_info(token_data: TokenData = Depends(verify_token), db: Async
         )
 
 
-@router.get("/update", summary="用户信息更新")
-async def update_user_info(token_data: TokenData = Depends(verify_token), db: AsyncSession = Depends(get_db)):
+@router.patch("/update", summary="用户信息更新")
+async def update_user_info(update_data: UserUpdate, token_data: TokenData = Depends(verify_token), db: AsyncSession = Depends(get_db)):
     """用户信息更新"""
+    if not token_data:
+        return BaseResponse(
+            code=401,
+            msg="Token验证失败",
+            data=None,
+        )
+
+    new_user = await update_user(db, token_data, update_data)
+    return return_token_info(new_user)
 
 
 # 示例 解析token

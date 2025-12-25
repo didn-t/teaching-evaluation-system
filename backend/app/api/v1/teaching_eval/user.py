@@ -66,10 +66,10 @@ async def register(form: UserCreate, db: AsyncSession = Depends(get_db)):
 
         # 生成 Token
         token_payload = {
-            "user_id": user.id,
+            "id": user.id,
             "user_id": user.user_id,
-            "role_type": user.role_type,
             "college_id": user.college_id,
+            "status" : user.status
         }
         access_token, expire_time = create_access_token(
             data=token_payload,
@@ -87,7 +87,6 @@ async def register(form: UserCreate, db: AsyncSession = Depends(get_db)):
                     "id": user.id,
                     "user_id": user.user_id,
                     "user_name": user.user_name,
-                    "role_type": user.role_type,
                     "college_id": user.college_id,
                 }
             },
@@ -136,9 +135,7 @@ async def login(form: LoginForm, db: AsyncSession = Depends(get_db)):
 
     # 生成 Token
     token_payload = {
-        "user_id": user.id,
         "user_id": user.user_id,
-        "role_type": user.role_type,
         "college_id": user.college_id,
     }
 
@@ -159,7 +156,6 @@ async def login(form: LoginForm, db: AsyncSession = Depends(get_db)):
                 "id": user.id,
                 "user_id": user.user_id,
                 "user_name": user.user_name,
-                "role_type": user.role_type,
                 "college_id": user.college_id,
             }
         },

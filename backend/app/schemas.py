@@ -14,7 +14,7 @@ class UserCreate(BaseModel):
     user_id: str  # 学号 / 工号 / 账号
     user_name: str
     password: str
-    college_id: int | None = None
+    college_id: Optional[str] = None
 
 
 class UserUpdate(BaseModel):

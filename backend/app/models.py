@@ -9,26 +9,6 @@ from app.base import Base
 import enum
 
 
-# ==================== 枚举定义 ====================
-
-class UserStatus(enum.IntEnum):
-    """用户状态"""
-    DISABLED = 0
-    ENABLED = 1
-
-
-class PermissionType(enum.IntEnum):
-    """权限类型"""
-    VIEW = 1
-    OPERATE = 2
-    EXPORT = 3
-    CONFIG = 4
-
-
-class Semester(enum.IntEnum):
-    """学期"""
-    SPRING = 1
-    AUTUMN = 2
 
 
 class EvaluationStatus(enum.IntEnum):
@@ -50,7 +30,7 @@ class User(Base):
     college_id = Column(BigInteger, ForeignKey('college.id', ondelete='SET NULL'), nullable=True, index=True,
                         comment='所属学院ID')
     password = Column(String(255), nullable=False, comment='密码（bcrypt加密）')
-    status = Column(TINYINT, default=UserStatus.ENABLED, index=True, comment='状态 1-启用 0-禁用')
+    status = Column(TINYINT, default=1, index=True, comment='状态 1-启用 0-禁用')
 
     # Token 相关（无 Redis 时存数据库）
     token = Column(String(512), comment='用户token')
@@ -73,7 +53,7 @@ class User(Base):
     # 关联
     college = relationship("College", back_populates="users")
     roles = relationship("Role", secondary="user_role", back_populates="users", lazy="selectin")
-    wechat_bindx = relationship("UserWechatBind", back_populates="user", uselist=False)
+    wechat_bind = relationship("UserWechatBind", back_populates="user", uselist=False)
     teach_timetables = relationship("Timetable", foreign_keys="Timetable.teacher_id", back_populates="teacher")
     evaluation_records = relationship("TeachingEvaluation", foreign_keys="TeachingEvaluation.teach_teacher_id",
                                       back_populates="teach_teacher")
@@ -154,7 +134,7 @@ class Role(Base):
     role_name = Column(String(128), nullable=False, comment='角色名称')
     role_level = Column(TINYINT, default=0, comment='角色级别（用于权限继承）')
     description = Column(String(256), comment='角色描述')
-    status = Column(TINYINT, default=UserStatus.ENABLED, index=True, comment='状态 1-启用 0-禁用')
+    status = Column(TINYINT, default=1, index=True, comment='状态 1-启用 0-禁用')
     create_time = Column(DateTime, server_default=func.now(), comment='创建时间')
     is_delete = Column(Boolean, default=False, index=True, comment='逻辑删除')
 
@@ -269,7 +249,7 @@ class Timetable(Base):
 
     # 关联
     college = relationship("College", back_populates="timetables")
-    teacher = relationship("User", foreign_keys="[teacher_id]", back_populates="teach_timetables")
+    teacher = relationship("User", foreign_keys=[teacher_id], back_populates="teach_timetables")
     evaluations = relationship("TeachingEvaluation", back_populates="timetable")
 
     __table_args__ = (
@@ -337,7 +317,7 @@ class TeachingEvaluation(Base):
 
     # 状态信息
     is_anonymous = Column(Boolean, default=False, comment='是否匿名')
-    status = Column(TINYINT, default=EvaluationStatus.VALID, index=True, comment='状态 1-有效 0-作废 2-待审核')
+    status = Column(TINYINT, default=1, index=True, comment='状态 1-有效 0-作废 2-待审核')
 
     submit_time = Column(DateTime, nullable=False, index=True, comment='提交时间')
     create_time = Column(DateTime, server_default=func.now(), comment='创建时间')
@@ -346,8 +326,8 @@ class TeachingEvaluation(Base):
 
     # 关联
     timetable = relationship("Timetable", back_populates="evaluations")
-    teach_teacher = relationship("User", foreign_keys="[teach_teacher_id]", back_populates="evaluation_records")
-    listen_teacher = relationship("User", foreign_keys="[listen_teacher_id]", back_populates="listen_evaluations")
+    teach_teacher = relationship("User", foreign_keys=[teach_teacher_id], back_populates="evaluation_records")
+    listen_teacher = relationship("User", foreign_keys=[listen_teacher_id], back_populates="listen_evaluations")
 
     __table_args__ = (
         # 防止同一听课教师对同一课表同一天重复评价
@@ -395,7 +375,7 @@ class TeacherEvaluationStat(Base):
     update_time = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment='更新时间')
 
     # 关联
-    teacher = relationship("User", foreign_keys="[teacher_id]")
+    teacher = relationship("User", foreign_keys=[teacher_id])
     college = relationship("College", back_populates="teacher_stats")
 
     __table_args__ = (
@@ -465,7 +445,7 @@ class SystemConfig(Base):
                          comment='操作人ID')
 
     # 关联
-    operator = relationship("User", foreign_keys="[operator_id]")
+    operator = relationship("User", foreign_keys=[operator_id])
 
     __table_args__ = (
         {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'comment': '系统配置表'}

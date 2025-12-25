@@ -6,16 +6,6 @@ from sqlalchemy.dialects.mysql import TINYINT
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.base import Base
-import enum
-
-
-
-
-class EvaluationStatus(enum.IntEnum):
-    """评价状态"""
-    INVALID = 0
-    VALID = 1
-    PENDING = 2
 
 
 # ==================== 用户权限相关 ====================

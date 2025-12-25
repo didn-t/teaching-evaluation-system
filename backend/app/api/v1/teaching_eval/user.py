@@ -7,9 +7,9 @@ import bcrypt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import User
 from app.schemas import Token, TokenData, LoginForm, UserCreate
 from pathlib import Path
+from app.crud.teaching_eval import create_user, get_user_by_user_id
 
 project_root = Path(__file__).parent.parent
 env_path = project_root / ".env"
@@ -46,7 +46,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 # 用户注册
 @router.post("/register")
 async def register(form: UserCreate, db: AsyncSession = Depends(get_db)):
-    user = await User.get_by_user_no(db, form.user_no)
+    user = await get_user_by_user_id(db, form.user_id)
     if user:
         return {
             "code": 400,
@@ -56,21 +56,20 @@ async def register(form: UserCreate, db: AsyncSession = Depends(get_db)):
         }
     try:
         user_data = {
-            "user_no": form.user_no,
+            "user_id": form.user_id,
             "user_name": form.user_name,
             "password": hash_password(form.password),  # 哈希密码
-            "role_type": form.role_type,
             "college_id": form.college_id,
         }
 
-        user = await User.create(db, user_data)
+        user = await create_user(db, user_data)
 
         # 生成 Token
         token_payload = {
-            "user_id": user.id,
-            "user_no": user.user_no,
-            "role_type": 1,  # 新用户都是普通用户
+            "id": user.id,
+            "user_id": user.user_id,
             "college_id": user.college_id,
+            "status" : user.status
         }
         access_token, expire_time = create_access_token(
             data=token_payload,
@@ -86,9 +85,8 @@ async def register(form: UserCreate, db: AsyncSession = Depends(get_db)):
                 "expire_time": expire_time,
                 "user": {
                     "id": user.id,
-                    "user_no": user.user_no,
+                    "user_id": user.user_id,
                     "user_name": user.user_name,
-                    "role_type": user.role_type,
                     "college_id": user.college_id,
                 }
             },
@@ -117,7 +115,7 @@ async def register(form: UserCreate, db: AsyncSession = Depends(get_db)):
 @router.post("/login")
 async def login(form: LoginForm, db: AsyncSession = Depends(get_db)):
     # 查询用户
-    user = await User.get_by_user_no(db, form.user_no)
+    user = await get_user_by_user_id(db, form.user_id)
     if not user:
         return {
             "code": 401,
@@ -137,9 +135,7 @@ async def login(form: LoginForm, db: AsyncSession = Depends(get_db)):
 
     # 生成 Token
     token_payload = {
-        "user_id": user.id,
-        "user_no": user.user_no,
-        "role_type": user.role_type,
+        "user_id": user.user_id,
         "college_id": user.college_id,
     }
 
@@ -158,9 +154,8 @@ async def login(form: LoginForm, db: AsyncSession = Depends(get_db)):
             "expire_time": expire_time,
             "user": {
                 "id": user.id,
-                "user_no": user.user_no,
+                "user_id": user.user_id,
                 "user_name": user.user_name,
-                "role_type": user.role_type,
                 "college_id": user.college_id,
             }
         },

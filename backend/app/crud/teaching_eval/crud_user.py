@@ -6,9 +6,27 @@ from typing import Optional
 from app.models import User
 
 
+async def get_user_by_user_id(db: AsyncSession, user_id: str) -> Optional[User]:
+    """根据用户编号获取用户"""
+    result = await db.execute(select(User).where(User.user_id == user_id))
+    try:
+        return result.scalar_one_or_none()
+    except NoResultFound:
+        return None
+
+
+async def create_user(db: AsyncSession, user_data: dict) -> User:
+    """创建新用户"""
+    user = User(**user_data)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)  # 刷新以获取数据库生成的ID
+    return user
+
+
 async def get_user_by_username(db: AsyncSession, username: str) -> Optional[User]:
     """根据用户名获取用户"""
-    result = await db.execute(select(User).where(User.user_no == username))
+    result = await db.execute(select(User).where(User.user_id == username))
     try:
         return result.scalar_one()
     except NoResultFound:

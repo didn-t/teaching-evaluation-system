@@ -69,6 +69,12 @@
         <button @click="navigateTo('/pages/college/data')" class="action-button ghost">
           数据管理
         </button>
+        <button @click="navigateTo('/pages/college/users')" class="action-button ghost">
+          用户管理
+        </button>
+        <button @click="navigateTo('/pages/college/notices')" class="action-button ghost">
+          评教通知
+        </button>
       </view>
     </view>
   </view>
@@ -87,37 +93,87 @@ export default {
     };
   },
   onLoad() {
+    // 页面加载时直接加载数据，不进行服务器连接检测
+    // 与其他账号（如教师端、督导端）使用相同的登录逻辑
     this.loadUserData();
     this.loadData();
   },
+  onShow() {
+    // 页面显示时刷新数据（如果需要），但不进行服务器连接检测
+    // 确保与其他账号逻辑一致
+    try {
+      if (this.currentUser && this.currentUser.college) {
+        this.loadData();
+      }
+    } catch (error) {
+      console.error('页面显示时加载数据失败:', error);
+      // 静默处理错误，不影响页面显示
+    }
+  },
   computed: {
     collegeAverageScore() {
-      if (this.evaluations.length === 0) return 0;
-      const sum = this.evaluations.reduce((acc, e) => acc + e.totalScore, 0);
-      return sum / this.evaluations.length;
+      try {
+        if (!this.evaluations || !Array.isArray(this.evaluations) || this.evaluations.length === 0) {
+          return 0;
+        }
+        const validScores = this.evaluations.filter(e => e && e.totalScore && typeof e.totalScore === 'number');
+        if (validScores.length === 0) return 0;
+        const sum = validScores.reduce((acc, e) => acc + e.totalScore, 0);
+        return sum / validScores.length;
+      } catch (error) {
+        console.error('计算学院平均分失败:', error);
+        return 0;
+      }
     },
     listenCompletionRate() {
-      if (this.collegeTeachers.length === 0) return 0;
-      const teachersWithListen = new Set(this.listenRecords.map(r => r.teacherId));
-      return (teachersWithListen.size / this.collegeTeachers.length) * 100;
+      try {
+        if (!this.collegeTeachers || !Array.isArray(this.collegeTeachers) || this.collegeTeachers.length === 0) {
+          return 0;
+        }
+        if (!this.listenRecords || !Array.isArray(this.listenRecords)) {
+          return 0;
+        }
+        const teachersWithListen = new Set(
+          this.listenRecords
+            .filter(r => r && r.teacherId)
+            .map(r => r.teacherId)
+        );
+        return (teachersWithListen.size / this.collegeTeachers.length) * 100;
+      } catch (error) {
+        console.error('计算听课完成率失败:', error);
+        return 0;
+      }
     },
     teacherRanking() {
-      const teacherStats = this.collegeTeachers.map(teacher => {
-        const teacherEvals = this.evaluations.filter(e => e.teacherId === teacher.id);
-        const count = teacherEvals.length;
-        const avgScore = count > 0
-          ? teacherEvals.reduce((acc, e) => acc + e.totalScore, 0) / count
-          : 0;
-        const level = avgScore >= 90 ? '优秀' : avgScore >= 80 ? '良好' : avgScore >= 70 ? '一般' : avgScore >= 60 ? '合格' : '不合格';
-        return {
-          id: teacher.id,
-          name: teacher.name,
-          count,
-          avgScore,
-          level
-        };
-      });
-      return teacherStats.sort((a, b) => b.avgScore - a.avgScore);
+      try {
+        if (!this.collegeTeachers || !Array.isArray(this.collegeTeachers) || this.collegeTeachers.length === 0) {
+          return [];
+        }
+        if (!this.evaluations || !Array.isArray(this.evaluations)) {
+          return [];
+        }
+        const teacherStats = this.collegeTeachers.map(teacher => {
+          if (!teacher || !teacher.id) return null;
+          const teacherEvals = this.evaluations.filter(e => e && (e.teacherId == teacher.id || e._teacherId == teacher.id));
+          const validEvals = teacherEvals.filter(e => e.totalScore && typeof e.totalScore === 'number');
+          const count = validEvals.length;
+          const avgScore = count > 0
+            ? validEvals.reduce((acc, e) => acc + e.totalScore, 0) / count
+            : 0;
+          const level = avgScore >= 90 ? '优秀' : avgScore >= 80 ? '良好' : avgScore >= 70 ? '一般' : avgScore >= 60 ? '合格' : '不合格';
+          return {
+            id: teacher.id,
+            name: teacher.name || '未知',
+            count,
+            avgScore,
+            level
+          };
+        }).filter(t => t !== null);
+        return teacherStats.sort((a, b) => b.avgScore - a.avgScore);
+      } catch (error) {
+        console.error('计算教师排名失败:', error);
+        return [];
+      }
     }
   },
   methods: {
@@ -125,11 +181,57 @@ export default {
       this.currentUser = simpleStore.state.currentUser || {};
     },
     loadData() {
-      this.evaluations = simpleStore.getCollegeEvaluations(this.currentUser.college);
-      this.listenRecords = simpleStore.getCollegeListenRecords(this.currentUser.college);
-      this.collegeTeachers = simpleStore.state.users.filter(
-        u => u.college === this.currentUser.college && u.role === 'teacher'
-      );
+      // 直接从本地存储加载数据，不进行服务器连接检测
+      // 与其他账号（如教师端、督导端）使用相同的登录逻辑，直接从本地存储获取数据
+      // TODO: 后期接入后端接口时，可在此处调用API获取数据
+      // 示例：
+      // try {
+      //   const response = await uni.request({ 
+      //     url: `/api/college/data?college=${this.currentUser.college}`,
+      //     timeout: 10000
+      //   });
+      //   this.evaluations = response.data.evaluations;
+      //   this.listenRecords = response.data.listenRecords;
+      //   this.collegeTeachers = response.data.teachers;
+      // } catch (error) {
+      //   console.error('获取数据失败:', error);
+      //   // 失败时使用本地数据作为降级方案
+      //   this.evaluations = simpleStore.getCollegeEvaluations(this.currentUser.college) || [];
+      //   this.listenRecords = simpleStore.getCollegeListenRecords(this.currentUser.college) || [];
+      //   this.collegeTeachers = simpleStore.state.users.filter(
+      //     u => u.college === this.currentUser.college && u.role === 'teacher'
+      //   ) || [];
+      // }
+      
+      // 确保用户数据存在
+      if (!this.currentUser || !this.currentUser.college) {
+        console.warn('用户数据或学院信息不存在，无法加载数据');
+        this.evaluations = [];
+        this.listenRecords = [];
+        this.collegeTeachers = [];
+        return;
+      }
+      
+      try {
+        const collegeName = this.currentUser.college;
+        
+        // 使用本地存储数据，不进行网络请求，与其他账号逻辑一致
+        const evaluations = simpleStore.getCollegeEvaluations(collegeName);
+        const listenRecords = simpleStore.getCollegeListenRecords(collegeName);
+        const allUsers = simpleStore.state.users || [];
+        
+        this.evaluations = Array.isArray(evaluations) ? evaluations : [];
+        this.listenRecords = Array.isArray(listenRecords) ? listenRecords : [];
+        this.collegeTeachers = Array.isArray(allUsers) 
+          ? allUsers.filter(u => u && u.college === collegeName && u.role === 'teacher')
+          : [];
+      } catch (error) {
+        console.error('加载数据失败:', error);
+        // 静默处理错误，设置默认值，避免影响用户体验
+        this.evaluations = [];
+        this.listenRecords = [];
+        this.collegeTeachers = [];
+      }
     },
     getLevelClass(level) {
       const map = {

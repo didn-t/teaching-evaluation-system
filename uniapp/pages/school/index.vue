@@ -91,6 +91,12 @@
         <button @click="navigateTo('/pages/school/data')" class="action-button ghost">
           数据管理
         </button>
+        <button @click="navigateTo('/pages/school/users')" class="action-button ghost">
+          用户管理
+        </button>
+        <button @click="navigateTo('/pages/school/notices')" class="action-button ghost">
+          通知管理
+        </button>
       </view>
     </view>
   </view>

@@ -12,6 +12,7 @@
           type="button"
           class="quick-btn"
           :class="{ active: modelValue === quickValue }"
+          :disabled="disabled"
           @click="updateValue(quickValue)"
         >
           {{ quickValue }}
@@ -23,6 +24,7 @@
           :max="max"
           :step="step"
           :value="modelValue"
+          :disabled="disabled"
           @change="onSliderChange"
           class="score-slider"
         />
@@ -42,9 +44,14 @@ export default {
       type: String,
       required: true
     },
+    // 支持 v-model 双向绑定（Vue3 语法）
     modelValue: {
       type: Number,
       default: 0
+    },
+    disabled: {
+      type: Boolean,
+      default: false
     },
     min: {
       type: Number,
@@ -56,17 +63,24 @@ export default {
     },
     step: {
       type: Number,
-      default: 0.5
+      default: 0.5,
+      validator: function(value) {
+        return value > 0; // 确保步长为正数
+      }
     }
   },
   computed: {
     quickValues() {
       const values = [];
+      // 根据最大值动态调整快速选择按钮的步长
       const step = this.max <= 5 ? 1 : 2;
+      // 生成快速选择值（确保包含最大值）
       for (let i = this.min; i <= this.max; i += step) {
-        values.push(i);
+        values.push(Number(i.toFixed(1))); // 处理浮点数精度问题
       }
-      if (this.max > 5 && !values.includes(this.max)) {
+      // 确保最大值被包含
+      const lastValue = values[values.length - 1];
+      if (lastValue !== this.max) {
         values.push(this.max);
       }
       return values;
@@ -74,10 +88,15 @@ export default {
   },
   methods: {
     updateValue(value) {
-      this.$emit('update:modelValue', value);
+      // 确保值在有效范围内
+      if (value >= this.min && value <= this.max) {
+        this.$emit('update:modelValue', value);
+      }
     },
     onSliderChange(e) {
-      this.$emit('update:modelValue', e.detail.value);
+      // 处理滑块值变化，修复浮点数精度
+      const value = Number(e.detail.value.toFixed(1));
+      this.$emit('update:modelValue', value);
     }
   }
 };
@@ -145,6 +164,11 @@ export default {
   background: #4f46e5;
   color: #fff;
   border-color: #4f46e5;
+}
+
+.quick-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .slider-container {

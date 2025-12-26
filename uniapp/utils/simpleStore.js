@@ -4,6 +4,8 @@ const defaultUsers = [
   { id: 2, username: 'teacher2', password: '123456', name: '李老师', role: 'teacher', college: '信息工程学院', courses: ['Java程序设计', '数据结构'] },
   { id: 3, username: 'college1', password: '123456', name: '王主任', role: 'college_admin', college: '信息工程学院' },
   { id: 4, username: 'school1', password: '123456', name: '系统管理员', role: 'school_admin', college: '' },
+  // 督导老师：负责学院/教研组的教学质量督导
+  { id: 5, username: 'supervisor1', password: '123456', name: '赵督导', role: 'supervisor', college: '信息工程学院', responsibleColleges: ['信息工程学院'], responsibleTeachers: [1, 2] },
 ];
 
 const defaultColleges = [
@@ -18,62 +20,9 @@ const defaultCourses = [
   { id: 3, name: '数据结构', teacherId: 2, teacherName: '李老师', college: '信息工程学院', semester: '2025春' },
 ];
 
-// 示例评价数据
+// 示例评价数据（只保留督导老师和教师评教记录，移除学生评教记录）
+// 注意：只有督导老师才能进行评教，学生不能评教
 const defaultEvaluations = [
-  {
-    id: 1001,
-    courseId: 1,
-    courseName: 'Vue.js开发',
-    teacherId: 1,
-    teacherName: '张老师',
-    evaluatorId: 101,
-    evaluatorName: '学生A',
-    evaluatorRole: 'student',
-    anonymous: true,
-    scores: {
-      teachingAttitude: 18,
-      content: 45,
-      method: 13,
-      effect: 14,
-      detail: {
-        teachingAttitude: { punctuality: 5, management: 5, appearance: 8 },
-        content: { objectives: 9, familiarity: 9, innovation: 9, ideology: 9, practice: 9 },
-        method: { materials: 5, interaction: 8 },
-        effect: { atmosphere: 9, inspiration: 5 }
-      }
-    },
-    totalScore: 90,
-    level: '优秀',
-    suggestion: '老师讲课非常清晰，案例丰富，能够很好地引导学生思考。建议可以增加一些实际项目练习。',
-    createdAt: new Date('2025-03-15T10:30:00').toISOString()
-  },
-  {
-    id: 1002,
-    courseId: 1,
-    courseName: 'Vue.js开发',
-    teacherId: 1,
-    teacherName: '张老师',
-    evaluatorId: 102,
-    evaluatorName: '学生B',
-    evaluatorRole: 'student',
-    anonymous: true,
-    scores: {
-      teachingAttitude: 19,
-      content: 48,
-      method: 14,
-      effect: 15,
-      detail: {
-        teachingAttitude: { punctuality: 5, management: 5, appearance: 9 },
-        content: { objectives: 10, familiarity: 10, innovation: 9, ideology: 9, practice: 10 },
-        method: { materials: 5, interaction: 9 },
-        effect: { atmosphere: 10, inspiration: 5 }
-      }
-    },
-    totalScore: 96,
-    level: '优秀',
-    suggestion: '课程内容深入浅出，老师讲解生动有趣，课堂互动很好。希望可以多分享一些实战经验。',
-    createdAt: new Date('2025-03-18T14:20:00').toISOString()
-  },
   {
     id: 1003,
     courseId: 1,
@@ -101,86 +50,60 @@ const defaultEvaluations = [
     suggestion: '教学思路清晰，建议在课程思政融入方面可以更加自然一些。',
     createdAt: new Date('2025-03-20T09:15:00').toISOString()
   },
+  // 督导老师评教记录示例
   {
-    id: 1004,
-    courseId: 2,
-    courseName: 'Java程序设计',
-    teacherId: 2,
-    teacherName: '李老师',
-    evaluatorId: 103,
-    evaluatorName: '学生C',
-    evaluatorRole: 'student',
-    anonymous: true,
+    id: 1007,
+    courseId: 1,
+    courseName: 'Vue.js开发',
+    teacherId: 1,
+    teacherName: '张老师',
+    evaluatorId: 5,
+    evaluatorName: '赵督导',
+    evaluatorRole: 'supervisor',
+    anonymous: false,
     scores: {
       teachingAttitude: 18,
-      content: 46,
+      content: 45,
       method: 13,
       effect: 14,
       detail: {
         teachingAttitude: { punctuality: 5, management: 5, appearance: 8 },
-        content: { objectives: 9, familiarity: 9, innovation: 9, ideology: 9, practice: 10 },
+        content: { objectives: 9, familiarity: 9, innovation: 9, ideology: 9, practice: 9 },
         method: { materials: 5, interaction: 8 },
         effect: { atmosphere: 9, inspiration: 5 }
       }
     },
-    totalScore: 91,
+    totalScore: 90,
     level: '优秀',
-    suggestion: '老师对Java的理解很深入，讲解透彻。建议可以增加一些代码调试的演示。',
-    createdAt: new Date('2025-03-16T11:00:00').toISOString()
+    suggestion: '教学效果良好，课堂组织有序，建议可以增加一些互动环节。',
+    createdAt: new Date('2025-03-21T10:00:00').toISOString()
   },
   {
-    id: 1005,
+    id: 1008,
     courseId: 2,
     courseName: 'Java程序设计',
     teacherId: 2,
     teacherName: '李老师',
-    evaluatorId: 104,
-    evaluatorName: '学生D',
-    evaluatorRole: 'student',
-    anonymous: true,
-    scores: {
-      teachingAttitude: 16,
-      content: 40,
-      method: 11,
-      effect: 12,
-      detail: {
-        teachingAttitude: { punctuality: 4, management: 4, appearance: 8 },
-        content: { objectives: 8, familiarity: 8, innovation: 8, ideology: 8, practice: 8 },
-        method: { materials: 4, interaction: 7 },
-        effect: { atmosphere: 7, inspiration: 5 }
-      }
-    },
-    totalScore: 79,
-    level: '一般',
-    suggestion: '课程内容不错，但节奏稍快，希望可以放慢一些，让基础薄弱的同学也能跟上。',
-    createdAt: new Date('2025-03-19T15:30:00').toISOString()
-  },
-  {
-    id: 1006,
-    courseId: 3,
-    courseName: '数据结构',
-    teacherId: 2,
-    teacherName: '李老师',
-    evaluatorId: 105,
-    evaluatorName: '学生E',
-    evaluatorRole: 'student',
-    anonymous: true,
+    evaluatorId: 5,
+    evaluatorName: '赵督导',
+    evaluatorRole: 'supervisor',
+    anonymous: false,
     scores: {
       teachingAttitude: 19,
-      content: 47,
+      content: 46,
       method: 14,
       effect: 15,
       detail: {
         teachingAttitude: { punctuality: 5, management: 5, appearance: 9 },
-        content: { objectives: 9, familiarity: 10, innovation: 9, ideology: 9, practice: 10 },
+        content: { objectives: 9, familiarity: 10, innovation: 9, ideology: 9, practice: 9 },
         method: { materials: 5, interaction: 9 },
         effect: { atmosphere: 10, inspiration: 5 }
       }
     },
-    totalScore: 95,
+    totalScore: 94,
     level: '优秀',
-    suggestion: '数据结构讲解非常清晰，图示和动画演示帮助很大。建议可以增加一些算法优化的讲解。',
-    createdAt: new Date('2025-03-17T13:45:00').toISOString()
+    suggestion: '课程内容充实，讲解详细，建议可以增加一些实际案例的分析。',
+    createdAt: new Date('2025-03-22T14:00:00').toISOString()
   }
 ];
 
@@ -259,11 +182,20 @@ const saveToStorage = (key, data) => {
 
 // 初始化状态
 const initState = () => {
+  // 获取存储的评价数据，并过滤掉学生评教记录（只保留督导老师和教师评教记录）
+  const storedEvaluations = getStoredData('evaluations', defaultEvaluations);
+  const filteredEvaluations = storedEvaluations.filter(e => e.evaluatorRole !== 'student');
+  
+  // 如果过滤后的数据与原始数据不同，说明有学生评教记录，需要更新存储
+  if (filteredEvaluations.length !== storedEvaluations.length) {
+    saveToStorage('evaluations', filteredEvaluations);
+  }
+  
   return {
     users: getStoredData('users', defaultUsers),
     colleges: getStoredData('colleges', defaultColleges),
     courses: getStoredData('courses', defaultCourses),
-    evaluations: getStoredData('evaluations', defaultEvaluations),
+    evaluations: filteredEvaluations, // 使用过滤后的评价数据
     listenRecords: getStoredData('listenRecords', defaultListenRecords),
     config: getStoredData('config', {
       anonymousMode: 'global',
@@ -272,6 +204,17 @@ const initState = () => {
       auditLog: true
     }),
     currentUser: getStoredData('currentUser', null),
+    notices: getStoredData('notices', [
+      {
+        id: 1,
+        title: '关于开展2025年春季学期评教工作的通知',
+        content: '各学院、各位老师：根据学校教学工作安排，现启动2025年春季学期评教工作。请各学院认真组织，确保评教工作顺利进行。',
+        sender: '教务处',
+        targetCollege: 'all',
+        createdAt: new Date('2025-03-01').toISOString(),
+        isRead: false
+      }
+    ]),
   };
 };
 
@@ -285,6 +228,7 @@ export const simpleStore = {
     saveToStorage('colleges', this.state.colleges);
     saveToStorage('courses', this.state.courses);
     saveToStorage('evaluations', this.state.evaluations);
+    saveToStorage('notices', this.state.notices);
     saveToStorage('listenRecords', this.state.listenRecords);
     saveToStorage('config', this.state.config);
     saveToStorage('currentUser', this.state.currentUser);
@@ -315,33 +259,53 @@ export const simpleStore = {
     return true;
   },
   
-  // 获取教师评价
+  // 获取教师评价（过滤掉学生评教记录，只保留督导老师和教师评教记录）
   getTeacherEvaluations(teacherId) {
-    return this.state.evaluations.filter(e => e.teacherId == teacherId);
+    if (!teacherId) return [];
+    if (!this.state.evaluations || !Array.isArray(this.state.evaluations)) return [];
+    return this.state.evaluations.filter(e => 
+      e && (e.teacherId == teacherId || e._teacherId == teacherId) && e.evaluatorRole !== 'student'
+    );
   },
   
-  // 获取学院评价
+  // 获取学院评价（过滤掉学生评教记录）
   getCollegeEvaluations(collegeName) {
+    if (!collegeName) return [];
+    if (!this.state.evaluations || !Array.isArray(this.state.evaluations)) return [];
+    if (!this.state.courses || !Array.isArray(this.state.courses)) return [];
+    
     return this.state.evaluations.filter(e => {
-      const course = this.state.courses.find(c => c.id == e.courseId);
+      if (!e) return false;
+      // 过滤掉学生评教记录
+      if (e.evaluatorRole === 'student') return false;
+      const course = this.state.courses.find(c => c && (c.id == e.courseId || c._id == e.courseId));
       return course && course.college === collegeName;
     });
   },
   
-  // 获取所有评价
+  // 获取所有评价（过滤掉学生评教记录）
   getAllEvaluations() {
-    return [...this.state.evaluations];
+    // 只返回督导老师和教师的评教记录，不包含学生评教记录
+    if (!this.state.evaluations || !Array.isArray(this.state.evaluations)) return [];
+    return this.state.evaluations.filter(e => e && e.evaluatorRole !== 'student');
   },
   
   // 获取教师听课记录
   getTeacherListenRecords(teacherId) {
-    return this.state.listenRecords.filter(r => r.teacherId == teacherId);
+    if (!teacherId) return [];
+    if (!this.state.listenRecords || !Array.isArray(this.state.listenRecords)) return [];
+    return this.state.listenRecords.filter(r => r && (r.teacherId == teacherId || r._teacherId == teacherId));
   },
   
   // 获取学院听课记录
   getCollegeListenRecords(collegeName) {
+    if (!collegeName) return [];
+    if (!this.state.listenRecords || !Array.isArray(this.state.listenRecords)) return [];
+    if (!this.state.courses || !Array.isArray(this.state.courses)) return [];
+    
     return this.state.listenRecords.filter(r => {
-      const course = this.state.courses.find(c => c.id == r.courseId);
+      if (!r) return false;
+      const course = this.state.courses.find(c => c && (c.id == r.courseId || c._id == r.courseId));
       return course && course.college === collegeName;
     });
   },
@@ -374,5 +338,129 @@ export const simpleStore = {
   // 获取配置
   getConfig() {
     return { ...this.state.config };
+  },
+
+  // ========== 督导老师相关方法 ==========
+  // 获取督导老师负责范围内的教师列表
+  // TODO: 后端接口 - GET /api/supervisor/teachers?supervisorId={id}
+  getSupervisorTeachers(supervisorId) {
+    const supervisor = this.state.users.find(u => (u.id || u._id) == supervisorId && u.role === 'supervisor');
+    if (!supervisor) return [];
+    
+    const responsibleTeachers = supervisor.responsibleTeachers || [];
+    const responsibleColleges = supervisor.responsibleColleges || [];
+    
+    // 优先使用指定的负责老师列表
+    if (responsibleTeachers && responsibleTeachers.length > 0) {
+      return this.state.users.filter(u => {
+        if (u.role !== 'teacher') return false;
+        return responsibleTeachers.includes(u.id || u._id);
+      });
+    }
+    
+    // 如果没有指定负责老师，则根据负责的学院筛选教师（向后兼容）
+    if (responsibleColleges && responsibleColleges.length > 0) {
+      return this.state.users.filter(u => {
+        if (u.role !== 'teacher') return false;
+        return responsibleColleges.includes(u.college);
+      });
+    }
+    
+    return [];
+  },
+
+  // 获取督导老师负责范围内的课程列表
+  // TODO: 后端接口 - GET /api/supervisor/courses?supervisorId={id}
+  getSupervisorCourses(supervisorId) {
+    const supervisor = this.state.users.find(u => (u.id || u._id) == supervisorId && u.role === 'supervisor');
+    if (!supervisor) return [];
+    
+    const responsibleColleges = supervisor.responsibleColleges || [];
+    const teachers = this.getSupervisorTeachers(supervisorId);
+    const teacherIds = teachers.map(t => t.id || t._id);
+    
+    return this.state.courses.filter(c => {
+      if (responsibleColleges.length > 0 && !responsibleColleges.includes(c.college)) return false;
+      if (teacherIds.length > 0 && !teacherIds.includes(c.teacherId)) return false;
+      return true;
+    });
+  },
+
+  // 获取督导老师负责范围内教师的评教汇总数据
+  // TODO: 后端接口 - GET /api/supervisor/evaluations/summary?supervisorId={id}
+  getSupervisorEvaluationsSummary(supervisorId) {
+    const teachers = this.getSupervisorTeachers(supervisorId);
+    const teacherIds = teachers.map(t => t.id || t._id).filter(id => id);
+    
+    if (teacherIds.length === 0) {
+      return [];
+    }
+    
+    // 统一获取所有评教记录（evaluations和listenRecords合并处理）
+    const evaluations = this.state.evaluations.filter(e => 
+      e && teacherIds.includes(e.teacherId) && e.evaluatorRole !== 'student'
+    );
+    
+    // 也包含listenRecords中的评教记录（统一处理）
+    const listenRecords = (this.state.listenRecords || []).filter(e => 
+      e && teacherIds.includes(e.teacherId) && e.evaluatorRole !== 'student'
+    );
+    
+    // 合并所有评教记录
+    const allEvaluations = [...evaluations, ...listenRecords];
+    
+    // 按教师汇总
+    const summary = {};
+    teacherIds.forEach(teacherId => {
+      const teacher = teachers.find(t => (t.id || t._id) == teacherId);
+      const teacherEvals = allEvaluations.filter(e => e && e.teacherId == teacherId);
+      
+      if (teacherEvals.length > 0) {
+        const validScores = teacherEvals.filter(e => e.totalScore && typeof e.totalScore === 'number');
+        if (validScores.length > 0) {
+          const totalScore = validScores.reduce((sum, e) => sum + e.totalScore, 0);
+          const avgScore = totalScore / validScores.length;
+          
+          summary[teacherId] = {
+            teacherId: teacherId,
+            teacherName: teacher ? teacher.name : '未知',
+            totalEvaluations: validScores.length,
+            totalScore: totalScore,
+            averageScore: avgScore,
+            evaluations: teacherEvals
+          };
+        }
+      }
+    });
+    
+    // 计算排名
+    const sorted = Object.values(summary)
+      .filter(item => item && typeof item.averageScore === 'number')
+      .sort((a, b) => b.averageScore - a.averageScore);
+    sorted.forEach((item, index) => {
+      item.rank = index + 1;
+    });
+    
+    return sorted;
+  },
+
+  // 获取督导老师负责范围内的听课记录
+  // TODO: 后端接口 - GET /api/supervisor/listen-records?supervisorId={id}
+  getSupervisorListenRecords(supervisorId) {
+    const courses = this.getSupervisorCourses(supervisorId);
+    const courseIds = courses.map(c => c.id || c._id);
+    
+    return this.state.listenRecords.filter(r => 
+      courseIds.includes(r.courseId)
+    );
+  },
+
+  // 检查用户是否有评教权限（普通老师和督导老师都可以评教）
+  // TODO: 后端接口 - GET /api/permissions/can-evaluate?userId={id}
+  canEvaluate(userId) {
+    const user = this.state.users.find(u => (u.id || u._id) == userId);
+    if (!user) return false;
+    // 普通老师和督导老师都可以进行评教和听课评价
+    return user.role === 'teacher' || user.role === 'supervisor';
   }
 };

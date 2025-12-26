@@ -45,30 +45,41 @@
 | 技术层面 | 选型说明                                         |
 | -------- | ------------------------------------------------ |
 | 前端技术 | 小程序：UniApp                                   |
-| 后端技术 | Python 3.10.11；FastAPI 0.112.4；MySQL  8.0.36； |
+| 后端技术 | Python 3.10.11；FastAPI 0.112.4；SQLAlchemy 2.0.45； |
+| 数据库   | MySQL 8.0.36                                     |
 | 其他依赖 | 详细查看requirements.txt                         |
 
 后端目录结构
 ```
 backend/
-├── app/
-│   ├── api/           # API 路由模块
-│   │   ├── user.py    # 用户管理
-│   │   ├── course.py  # 课程管理
-│   │   └── ...
-│   ├── models.py      # 数据库模型
-│   ├── schemas.py     # 数据验证模型
-│   └── utils/         # 工具函数
-├── alembic/           # 数据库迁移文件
-├── main.py            # 主应用文件
-├── requirements.txt   # 依赖包
-└── .env               # 环境配置
+├── alembic/                    # 数据库迁移文件
+│   ├── versions/              # 迁移版本文件
+├── app/                       # 应用主目录
+│   ├── api/                   # API 接口定义
+│   │   └── v1/               # API 版本 v1
+│   │       └── teaching_eval/ # 教学评教相关接口
+│   │           ├── eval.py    # 评教相关接口
+│   │           └── user.py    # 用户相关接口
+│   ├── core/                  # 核心模块
+│   │   ├── auth.py            # 认证相关
+│   │   ├── config.py          # 配置管理
+│   │   ├── deps.py            # 依赖注入
+│   │   └── exceptions.py      # 异常处理
+│   ├── crud/                  # 数据库操作
+│   │   └── teaching_eval/     # 教学评教相关数据库操作
+│   │       └── user.py        # 用户相关数据库操作
+│   ├── middleware/            # 中间件
+│   │   └── auth_middleware.py # 认证中间件
+│   ├── models.py              # 数据库模型
+│   ├── schemas.py             # 数据验证模型
+│   └── base.py                # 基础配置
+├── tests/                     # 测试文件
+├── main.py                    # 主应用文件
+├── requirements.txt           # 依赖包
+└── .env                       # 环境配置
 ```
 
-
-
 后端依赖一键安装命令
-
 ```bash
 pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 ```
@@ -80,7 +91,6 @@ pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
  **.env文件 存放数据库配置等敏感信息**
 
 .env例如：
-
 ```
 # MySQL 数据库配置
 MYSQL_USER=root
@@ -100,30 +110,23 @@ APP_VERSION=1.0.0
 DEBUG=True
 ```
 
-
-
 ## 三、API 接口说明
 
-**FastAPI自动生成**
+FastAPI自动生成
 
 ### （一）接口设计原则
 
-1. 统一前缀：所有接口统一前缀（如 `/api/teaching-eval/`），区分不同业务模块；
-2. 请求方式：遵循 RESTful 风格（GET：查询、POST：新增、PUT：修改、DELETE：删除）；
+1. 统一前缀：所有接口统一前缀（如 `/api/v1/teaching-eval/`），区分不同业务模块；
+2. 请求方式：遵循 RESTful 风格（GET：查询、POST：新增、PUT/PATCH：修改、DELETE：删除）；
 3. 数据格式：请求 / 响应均采用 JSON 格式，统一返回状态码与提示信息；
 4. 权限校验：所有接口（除登录、注册外）需携带 Token 进行身份验证与权限校验。
 
 ### （二）核心接口分类
 
-
-
 | 业务模块     | 核心接口示例                                                 |
 | ------------ | ------------------------------------------------------------ |
-| 用户模块     | 1. `/api/teaching-eval/user/login`（POST：用户登录，获取 Token）；2. `/api/teaching-eval/user/info`（GET：查询当前用户信息及权限）；3. `/api/teaching-eval/user/update`（PUT：更新用户基础信息）； |
-| 课表模块     | 1. `/api/teaching-eval/timetable/personal`（GET：查询个人课表）；2. `/api/teaching-eval/timetable/scope`（GET：查询负责范围课表（督导 / 管理员））；3. `/api/teaching-eval/timetable/sync`（POST：同步教务系统课表）； |
-| 评教模块     | 1. `/api/teaching-eval/evaluation/add`（POST：提交听课评教数据）；2. `/api/teaching-eval/evaluation/personal`（GET：查询个人评教结果 / 记录）；3. `/api/teaching-eval/evaluation/detail`（GET：查询指定教师评教详情（管理员 / 督导））； |
-| 统计模块     | 1. `/api/teaching-eval/statistics/college`（GET：查询学院统计数据）；2. `/api/teaching-eval/statistics/school`（GET：查询学校统计数据）；3. `/api/teaching-eval/statistics/export`（POST：导出统计报表）； |
-| 系统配置模块 | 1. `/api/teaching-eval/config/anonymous`（PUT：配置评教匿名 / 实名模式）；2. `/api/teaching-eval/config/permission`（PUT：调整角色数据可见性）； |
+| 用户模块     | 1. `POST /api/v1/teaching-eval/user/login`（用户登录，获取 Token）；2. `POST /api/v1/teaching-eval/user/register`（用户注册）；3. `GET /api/v1/teaching-eval/user/role`（查询当前用户角色信息）；4. `GET /api/v1/teaching-eval/user/role-permissions`（查询角色权限信息）；5. `GET /api/v1/teaching-eval/user/permissions`（查询用户权限信息）；6. `PATCH /api/v1/teaching-eval/user/update`（更新用户基础信息）； |
+| 评教模块     | 1. `POST /api/v1/teaching-eval/eval/system-configs`（创建系统配置）； |
 
 ### （三）统一响应格式
 
@@ -138,9 +141,21 @@ DEBUG=True
 
 ## 四、数据库设计
 
+### （一）核心表结构
 
 
 
+### （二）数据库关系图
+
+```
+用户(user) ←→ 用户角色(user_role) ←→ 角色(role) ←→ 角色权限(role_permission) ←→ 权限(permission)
+   ↓
+学院(college) ←→ 课表(timetable) ←→ 教学评价(teaching_evaluation)
+   ↓
+学院统计(college_evaluation_stat)
+   ↓
+教师统计(teacher_evaluation_stat)
+```
 
 ## 五、项目管理
 
@@ -282,3 +297,76 @@ git reset --hard  # 放弃所有本地修改（恢复到最近一次提交）
 # 3. 重命名本地分支（如需修改分支名）
 git branch -m old-branch-name new-branch-name
 ```
+
+## 六、部署说明
+
+### （一）环境准备
+
+1. 安装 Python 3.10+
+2. 安装 MySQL 8.0+
+3. 安装 Git
+
+### （二）后端部署
+
+1. 克隆项目代码
+```bash
+git clone <repository-url>
+cd teaching-evaluation-system/backend
+```
+
+2. 创建虚拟环境并安装依赖
+```bash
+python -m venv venv
+source venv/Scripts/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+3. 创建数据库
+```sql
+CREATE DATABASE teaching_evaluation_system 
+CHARACTER SET utf8mb4 
+COLLATE utf8mb4_unicode_ci;
+```
+
+4. 配置环境变量
+```bash
+# 复制配置文件
+cp .env.example .env
+# 编辑 .env 文件，配置数据库连接信息
+```
+
+5. 运行数据库迁移
+```bash
+alembic upgrade head
+```
+
+6. 启动后端服务
+```bash
+python main.py
+```
+
+### （三）前端部署
+
+1. 安装 Node.js 和 npm
+2. 安装 UniApp 开发工具
+3. 运行前端项目
+```bash
+cd teaching-evaluation-system/uniapp
+npm install
+npm run dev:mp-weixin  # 微信小程序开发模式
+npm run build:mp-weixin  # 构建微信小程序
+```
+
+### （四）测试数据
+
+系统提供测试数据脚本，可快速插入测试用户和数据：
+```bash
+cd backend
+python tests/insert_test_data.py
+```
+
+### （五）健康检查
+
+系统提供健康检查接口：
+- `GET /health` - 检查应用健康状态
+- `GET /health/db` - 检查数据库连接状态

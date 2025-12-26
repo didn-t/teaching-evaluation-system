@@ -32,6 +32,8 @@ def create_access_token(token_data: TokenData, expires_delta: timedelta | None =
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES) or 30))
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    print("SECRET_KEY", SECRET_KEY)
+    print("ALGORITHM", ALGORITHM)
 
     return Token(
         access_token=encoded_jwt,
@@ -45,7 +47,6 @@ def verify_token(token: Token) -> Optional[TokenData]:
     :return:成功返回payload，失败返回None
     """
     try:
-
         payload = jwt.decode(token.access_token, SECRET_KEY, algorithms=[ALGORITHM])
         token_data = TokenData(**payload)
         return token_data

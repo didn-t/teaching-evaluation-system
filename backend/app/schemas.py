@@ -7,12 +7,12 @@ T = TypeVar("T")  # 泛型类型
 
 # 用户相关模型
 class UserBase(BaseModel):
-    user_id: str  # 学号 / 工号 / 账号
+    user_on: str  # 学号 / 工号 / 账号
     password: str
 
 
 class UserCreate(UserBase):
-    user_name: str
+    user_name: Optional[str]
     college_id: Optional[str] = None
 
 
@@ -53,8 +53,9 @@ class Token(BaseModel):
 
 
 class TokenData(BaseModel):
-    user_id: str
-    college_id: int | None
+    id: int
+    user_on: str
+    college_id: Optional[int] = None
     status: Optional[int] = 1
     is_delete: Optional[bool] = 0
 

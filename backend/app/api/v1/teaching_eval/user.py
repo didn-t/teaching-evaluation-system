@@ -1,6 +1,3 @@
-from datetime import timedelta
-from typing import Optional
-
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
@@ -19,21 +16,20 @@ def return_token_info(user):
     :return:
     """
     token_payload = {
-        "user_id": user.user_id,
+        "id": user.id,
+        "user_on": user.user_on,
         "college_id": user.college_id,
         "status": user.status,
         "is_delete": user.is_delete,
     }
     token_data = TokenData(**token_payload)
-    token = create_access_token(token_data)
     return BaseResponse(
         code=200,
         msg="success",
         # 合并字典 | 操作符（Python 3.9+）
-        data=token.model_dump() | {
+        data=create_access_token(token_data).model_dump() | {
             "user": {
-                "id": user.id,
-                "user_id": user.user_id,
+                "user_on": user.user_on,
                 "user_name": user.user_name,
                 "college_id": user.college_id,
             }
@@ -44,7 +40,7 @@ def return_token_info(user):
 # 用户注册
 @router.post("/register", summary="用户注册")
 async def register(form: UserCreate, db: AsyncSession = Depends(get_db)):
-    user = await get_user(db, form.user_id)
+    user = await get_user(db, form.user_on)
     if user:
         return BaseResponse(
             code=400,
@@ -52,43 +48,32 @@ async def register(form: UserCreate, db: AsyncSession = Depends(get_db)):
             data=None,
         )
 
-    try:
-        user_data = {
-            "user_id": form.user_id,
-            "user_name": form.user_name,
-            "password": hash_password(form.password),  # 哈希密码
-            "college_id": form.college_id,
-        }
 
-        user = await create_user(db, user_data)
+    user_data = {
+        "user_on": form.user_on,
+        "user_name": form.user_name,
+        "password": hash_password(form.password),  # 哈希密码
+        "college_id": form.college_id,
+    }
 
-        # 生成 Token,并返回
-        return return_token_info(user)
-
-
-    except Exception as e:
-        print(e)
-        # <CHANGE> 返回更详细的错误信息
-        error_msg = str(e)
-        if "cannot be null" in error_msg:
-            return BaseResponse(
-                code=400,
-                msg="缺少必填字段：" + error_msg.split("'")[1],
-                data=None,
-            )
-
+    user = await create_user(db, user_data)
+    if not user:
         return BaseResponse(
             code=500,
-            msg="服务器错误",
+            msg="创建失败",
             data=None,
         )
+    # 生成 Token,并返回
+    return return_token_info(user)
+
 
 
 @router.post("/login", summary="用户登录")
 async def login(form: UserBase, db: AsyncSession = Depends(get_db)):
     """用户登录"""
+    print("form:", form)
 
-    user = await get_user(db, form.user_id)
+    user = await get_user(db, form.user_on)
     if not user:
         return BaseResponse(
             code=400,
@@ -118,29 +103,22 @@ async def get_user_info(token_data: TokenData = Depends(verify_token), db: Async
             msg="Token验证失败",
             data=None,
         )
-    try:
-        role_list = await get_roles_name(db, token_data)
-        token = create_access_token(token_data)
-        return BaseResponse(
-            code=200,
-            msg="success",
-            data=token.model_dump() | {
-                "user_id": token_data.user_id,
-                "roles": role_list,
-            },
-        )
 
-    except Exception as e:
-        print(e)
-        return BaseResponse(
-            code=500,
-            msg="服务器错误",
-            data=None,
-        )
+    role_list = await get_roles_name(db, token_data)
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data=create_access_token(token_data).model_dump() | {
+            "user_on": token_data.user_on,
+            "roles": role_list,
+        },
+    )
+
 
 
 @router.patch("/update", summary="用户信息更新")
-async def update_user_info(update_data: UserUpdate, token_data: TokenData = Depends(verify_token), db: AsyncSession = Depends(get_db)):
+async def update_user_info(update_data: UserUpdate, token_data: TokenData = Depends(verify_token),
+                           db: AsyncSession = Depends(get_db)):
     """用户信息更新"""
     if not token_data:
         return BaseResponse(
@@ -149,7 +127,22 @@ async def update_user_info(update_data: UserUpdate, token_data: TokenData = Depe
             data=None,
         )
 
-    new_user = await update_user(db, token_data, update_data)
+    try:
+        new_user = await update_user(db, token_data, update_data)
+        if not new_user:
+            return BaseResponse(
+                code=400,
+                msg="fail",
+                data=None,
+            )
+    except Exception as e:
+        print(e)
+        return BaseResponse(
+            code=500,
+            msg="服务器错误",
+            data=None,
+        )
+
     return return_token_info(new_user)
 
 
@@ -184,7 +177,7 @@ async def role_permissions(token_data: TokenData = Depends(verify_token), db: As
             code=200,
             msg="success",
             data=token.model_dump() | {
-                "user_id": token_data.user_id,
+                "user_on": token_data.user_on,
                 "roles": role_list,
                 "permissions": permissions,
             },
@@ -210,14 +203,13 @@ async def get_user_info(token_data: TokenData = Depends(verify_token), db: Async
         )
     try:
         permissions = await get_user_permissions(db, token_data)
-        token = create_access_token(token_data)
         return BaseResponse(
             code=200,
             msg="success",
-            data=token.model_dump() | {
-                "user_id": token_data.user_id,
+            data=create_access_token(token_data).model_dump() | {
+                "user_on": token_data.user_on,
                 "permissions": permissions,
-            },
+            }
         )
     except Exception as e:
         print(e)

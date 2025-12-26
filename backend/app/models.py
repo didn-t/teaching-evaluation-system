@@ -15,7 +15,7 @@ class User(Base):
     __tablename__ = 'user'
 
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='用户ID')
-    user_id = Column(String(32), unique=True, nullable=False, index=True, comment='工号/账号')
+    user_on = Column(String(32), unique=True, nullable=False, index=True, comment='工号/账号')
     user_name = Column(String(64), nullable=False, comment='用户名')
     college_id = Column(BigInteger, ForeignKey('college.id', ondelete='SET NULL'), nullable=True, index=True,
                         comment='所属学院ID')

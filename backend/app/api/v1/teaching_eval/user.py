@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas import UserBase, UserCreate, TokenData, BaseResponse, UserUpdate
 from app.crud.teaching_eval import create_user, get_user, get_roles_name, get_user_permissions, get_role_permissions, \
-    update_user
+    update_user, get_roles_code
 from app.core import hash_password, create_access_token, verify_password
 from app.core.deps import get_current_user
 
@@ -89,12 +89,14 @@ async def get_role(
     db: AsyncSession = Depends(get_db)
 ):
     """获取用户角色信息"""
-    role_list = await get_roles_name(db, current_user)
+    role_name_list = await get_roles_name(db, current_user)
+    role_code_list = await get_roles_code(db, current_user)
     return BaseResponse(
         code=200,
         msg="success",
         data={
-            "roles": role_list,
+            "roles_name": role_name_list,
+            "role_code" : role_code_list
         },
     )
 

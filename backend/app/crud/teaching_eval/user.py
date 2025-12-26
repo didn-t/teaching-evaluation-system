@@ -101,6 +101,32 @@ async def get_roles_name(db: AsyncSession, token_data: Optional[TokenData]) -> l
 
     # 执行异步查询，提取标量结果列表
     result = await db.execute(stmt)
+    role_list = result.scalars().all()  # 直接获取[str, str, ...] 或 []
+    return list(role_list)
+
+
+async def get_roles_code(db: AsyncSession, token_data: Optional[TokenData]) -> list[str]:
+    """
+    获取用户角色列表（返回角色名称列表）
+    :param db: 异步会话对象
+    :param token_data:
+    :return: 角色名称列表（无角色返回空列表）
+    """
+    # 构建关联查询：UserRole关联Role，筛选指定user.id，查询角色名称
+    # stmt = (
+    #     select(Role.role_name)
+    #     .join(UserRole, Role.id == UserRole.role_id)  # 关联UserRole表
+    #     .where(UserRole.user_id == token_data.id)  # 筛选用户ID
+    # )
+    stmt = (
+        select(Role.role_code)
+        .join(UserRole, Role.id == UserRole.role_id)  # 关联UserRole表
+        .join(User, User.id == UserRole.user_id)
+        .where(User.id == token_data.id)  # 筛选用户ID
+    )
+
+    # 执行异步查询，提取标量结果列表
+    result = await db.execute(stmt)
     try:
         role_list = result.scalars().all()  # 直接获取[str, str, ...] 或 []
         return list(role_list)

@@ -5,7 +5,7 @@ from typing import Optional, Any, Coroutine
 
 from sqlalchemy.orm import selectinload
 
-from app.models import User, Role, UserRole, Permission
+from app.models import User, Role, UserRole, Permission, RolePermission
 from app.schemas import UserUpdate, TokenData
 
 
@@ -16,10 +16,22 @@ async def get_user(db: AsyncSession, user_on: str) -> Optional[User]:
     :param user_on: 用户ID
     :return: User对象（无返回None）
     """
-
-
     try:
         result = await db.execute(select(User).where(User.user_on == user_on))
+        return result.scalar_one_or_none()
+    except NoResultFound:
+        return None
+
+
+async def get_user_by_id(db: AsyncSession, token_data: TokenData) -> Optional[User]:
+    """
+    根据User.id获取User对象
+    :param db: 异步会话对象
+    :param token_data:
+    :return: User对象（无返回None）
+    """
+    try:
+        result = await db.execute(select(User).where(User.id == token_data.id))
         return result.scalar_one_or_none()
     except NoResultFound:
         return None
@@ -32,7 +44,6 @@ async def create_user(db: AsyncSession, user_data: dict) -> Optional[User]:
     """
     user = User(**user_data)
 
-
     try:
         db.add(user)
         await db.commit()
@@ -40,15 +51,16 @@ async def create_user(db: AsyncSession, user_data: dict) -> Optional[User]:
 
         return user
     except Exception as e:
-        print("创建失败",e)
+        print("创建失败", e)
         return None
 
 
 async def update_user(db: AsyncSession, token_data, user_data: UserUpdate) -> Optional[User]:
     """更新用户信息"""
-    user = await get_user(db, token_data.id)
-    if not user:
-        return None
+
+    user = await get_user_by_id(db, token_data)
+    print("token_data：：", token_data)
+    print("user：：", user)
 
     # 将模型转换为字典并过滤None值
     update_data = user_data.model_dump(exclude_unset=True)
@@ -75,9 +87,16 @@ async def get_roles_name(db: AsyncSession, token_data: Optional[TokenData]) -> l
     :return: 角色名称列表（无角色返回空列表）
     """
     # 构建关联查询：UserRole关联Role，筛选指定user.id，查询角色名称
+    # stmt = (
+    #     select(Role.role_name)
+    #     .join(UserRole, Role.id == UserRole.role_id)  # 关联UserRole表
+    #     .where(UserRole.user_id == token_data.id)  # 筛选用户ID
+    # )
     stmt = (
         select(Role.role_name)
-        .where(UserRole.user_id == token_data.id)  # 筛选用户ID
+        .join(UserRole, Role.id == UserRole.role_id)  # 关联UserRole表
+        .join(User, User.id == UserRole.user_id)
+        .where(User.id == token_data.id)  # 筛选用户ID
     )
 
     # 执行异步查询，提取标量结果列表
@@ -91,23 +110,25 @@ async def get_roles_name(db: AsyncSession, token_data: Optional[TokenData]) -> l
 
 async def get_role_permissions(db: AsyncSession, token_data: Optional[TokenData]) -> list[str]:
     """
-    根据角色role_id获取角色权限
+    根据用户ID获取角色权限
     :param db: 异步会话对象
     :param token_data:
     :return: 返回角色权限列表（无角色返回空列表）
     """
-    try:
-        # 查询用户及其关联的角色和权限
-        result = await db.execute(
-            select(Permission.permission_code)
-            .options(selectinload(Role.permissions))
-        )
+    # 查询用户关联的权限
+    result = await db.execute(
+        select(Permission.permission_code)
+        .join(RolePermission, Permission.id == RolePermission.permission_id)
+        .join(Role, RolePermission.role_id == Role.id)
+        .join(UserRole, Role.id == UserRole.role_id)
+        .join(User, User.id == UserRole.user_id)
+        .where(User.id == token_data.id)
+    )
 
-        data = result.all()
+    data = result.all()
 
-        return list(dict.fromkeys(item[0] for item in data))
-    except NoResultFound:
-        return []
+    return [item[0] for item in data]
+
 
 
 async def get_user_permissions(db: AsyncSession, token_data: Optional[TokenData]) -> list[str]:
@@ -118,14 +139,26 @@ async def get_user_permissions(db: AsyncSession, token_data: Optional[TokenData]
     :return list[str]
     """
     try:
-        # 查询用户及其关联的角色和权限
-        result = await db.execute(
+        # stmt = (
+        #     select(Permission.permission_code)
+        #     .select_from(User)
+        #     .join(UserRole, User.id == UserRole.user_id)
+        #     .join(Role, UserRole.role_id == Role.id)
+        #     .join(RolePermission, Role.id == RolePermission.role_id)
+        #     .join(Permission, RolePermission.permission_id == Permission.id)
+        #     .where(User.id == token_data.id)  # 筛选用户ID
+        # )
+        # 获取用户关联的角色ID(等价于上面注释那个)
+        user_roles_stmt = select(UserRole.role_id).where(UserRole.user_id == token_data.id)
+        stmt = (
             select(Permission.permission_code)
-            .where(UserRole.user_id == token_data.id)
+            .join(RolePermission, Permission.id == RolePermission.permission_id)
+            .where(RolePermission.role_id.in_(user_roles_stmt))
         )
 
-        data = result.all()
+        result = await db.execute(stmt)
 
-        return list(dict.fromkeys(item[0] for item in data))
+        data = result.all()
+        return [item[0] for item in data]  # 直接提取权限码
     except NoResultFound:
         return []

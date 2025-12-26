@@ -48,8 +48,7 @@ class BaseResponse(BaseModel, Generic[T]):
 
 # 认证相关模型
 class Token(BaseModel):
-    access_token: str
-    expire_time: Optional[datetime] = None
+    token: str
 
 
 class TokenData(BaseModel):

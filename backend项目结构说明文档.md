@@ -20,10 +20,14 @@ teaching-evaluation-system/
 │   │           └── user.py    # 用户相关接口 (比如对用户进行操作的接口就放在user.py文件里)
 │   ├── core/                  # 核心功能模块
 │   │   ├── auth.py            # 认证相关功能
-│   │   └── config.py          # 配置管理（读取.env文件）
+│   │   ├── config.py          # 配置管理（读取.env文件）
+│   │   ├── deps.py            # 依赖注入功能
+│   │   └── exceptions.py      # 异常处理
 │   ├── crud/                  # 数据库操作
 │   │   └── teaching_eval/     # 教学评教相关数据库操作
 │   │       └── user.py        # 用户相关数据库操作
+│   ├── middleware/            # 中间件
+│   │   └── auth_middleware.py # 认证中间件
 │   ├── utils/                 # 工具函数(后续添加)
 │   ├── spiders/               # 爬虫模块(后续添加)
 │   │   └── nnlg_spider/        # 南宁理工教务系统爬虫(后续添加)
@@ -36,6 +40,8 @@ teaching-evaluation-system/
 ├── alembic.ini                # Alembic 配置文件
 ├── main.py                    # 应用入口文件
 ├── requirements.txt           # 项目依赖
+├── README.md                  # 项目说明文档
+├── DEVELOPER_GUIDE.md         # 开发指南
 └── 数据库迁移说明.md           # 数据库迁移说明文档
 ```
 
@@ -48,6 +54,7 @@ teaching-evaluation-system/
 - 定义根路由和健康检查接口
 - 包含数据库连接健康检查
 - 集成 API 路由
+- 统一异常处理
 
 ### 3.2 配置模块 (app/core/config.py)
 
@@ -131,6 +138,7 @@ teaching-evaluation-system/
 - **评教相关模型**: TeachingEvaluationBase, TeachingEvaluationCreate, TeachingEvaluationResponse
 - **统计相关模型**: TeacherEvaluationStatBase, CollegeEvaluationStatBase
 - **系统配置模型**: SystemConfigBase, SystemConfigCreate, SystemConfigResponse
+- **统一响应模型**: BaseResponse - 用于统一API响应格式
 
 ### 3.8 工具函数 (app/utils/)
 
@@ -157,7 +165,232 @@ teaching-evaluation-system/
 - 数据库连接配置
 - 应用配置项管理
 
-## 4. 技术栈
+#### 依赖注入 (deps.py)
+- 当前用户依赖注入
+- 权限验证依赖注入
+- 角色验证依赖注入
+
+#### 异常处理 (exceptions.py)
+- 统一异常处理机制
+- 自定义异常响应格式
+
+### 3.11 中间件 (app/middleware/)
+
+#### 认证中间件 (auth_middleware.py)
+- 自动验证需要认证的请求
+- 设置公共路径（无需认证）
+- 自动设置 Token Cookie
+
+## 4. 权限控制系统
+
+### 4.1 权限验证装饰器
+
+系统提供了多种权限验证方式，开发者可以根据需要选择合适的方式。
+
+#### 方式1：路由级别声明（不需要在函数参数中使用）
+```python
+@router.get("/users", dependencies=[Depends(require_permissions("user:read"))])
+async def list_users():
+    # 仅验证权限，不直接使用 current_user
+    ...
+```
+
+#### 方式2：参数注入（可以同时获取 current_user）
+```python
+@router.post("/users")
+async def create_user(
+    current_user: TokenData = Depends(require_permissions("user:create"))
+):
+    # current_user 已验证并可用
+    # 可以访问 current_user.id, current_user.user_on 等属性
+    ...
+```
+
+#### 方式3：角色验证（满足任一角色）
+```python
+@router.delete("/users/{id}")
+async def delete_user(
+    current_user: TokenData = Depends(require_roles("admin", "super_admin"))
+):
+    # 用户具有 admin 或 super_admin 角色之一即可访问
+    ...
+```
+
+#### 方式4：需要全部权限
+```python
+@router.put("/users/{id}")
+async def update_user(
+    _: None = Depends(require_permissions("user:read", "user:update", require_all=True))
+):
+    # 需要同时具有 user:read 和 user:update 权限
+    ...
+```
+
+### 4.2 权限验证函数
+
+#### require_permissions - 权限验证
+```python
+def require_permissions(*permission_codes: str, require_all: bool = False):
+    """
+    验证用户权限
+    :param permission_codes: 权限代码列表
+    :param require_all: 是否需要满足所有权限，默认为 False（满足任一权限即可）
+    :return: 验证通过返回当前用户信息，否则抛出 HTTPException
+    """
+```
+
+#### require_roles - 角色验证
+```python
+def require_roles(*role_codes: str):
+    """
+    验证用户角色
+    :param role_codes: 角色代码列表
+    :return: 验证通过返回当前用户信息，否则抛出 HTTPException
+    """
+```
+
+## 5. API 开发实践
+
+### 5.1 Request 对象的使用
+
+在 FastAPI 中，`Request` 对象提供了对 HTTP 请求的完全访问。
+
+```python
+from fastapi import Request
+
+@router.get("/example")
+async def example_endpoint(request: Request):
+    # 获取请求方法
+    method = request.method
+    
+    # 获取请求URL
+    url = str(request.url)
+    
+    # 获取请求头
+    user_agent = request.headers.get("user-agent")
+    authorization = request.headers.get("authorization")
+    
+    # 获取客户端IP
+    client_host = request.client.host
+    
+    # 获取查询参数
+    query_params = dict(request.query_params)
+    
+    return {
+        "method": method,
+        "url": url,
+        "user_agent": user_agent,
+        "client_ip": client_host,
+        "query_params": query_params
+    }
+```
+
+### 5.2 TokenData 的使用
+
+`TokenData` 包含了验证通过的用户信息：
+
+```python
+from app.schemas import TokenData
+from app.core.deps import get_current_user
+
+@router.get("/user-info")
+async def get_user_info(
+    current_user: TokenData = Depends(get_current_user)
+):
+    return {
+        "user_id": current_user.id,
+        "user_on": current_user.user_on,      # 工号/账号
+        "college_id": current_user.college_id,  # 学院ID
+        "status": current_user.status,        # 用户状态
+        "is_delete": current_user.is_delete   # 是否删除
+    }
+```
+
+### 5.3 API 开发模板
+
+```python
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_db
+from app.schemas import BaseResponse, TokenData
+from app.core.deps import get_current_user, require_permissions
+
+router = APIRouter(prefix="/example", tags=["示例"])
+
+# 不需要认证的公开接口
+@router.post("/public-endpoint")
+async def public_endpoint():
+    """
+    公开接口示例
+    不需要认证即可访问
+    """
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={"message": "这是公开接口"}
+    )
+
+# 需要认证的接口
+@router.get("/protected-endpoint")
+async def protected_endpoint(
+    current_user: TokenData = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    需要认证的接口示例
+    """
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={
+            "user_id": current_user.id,
+            "user_name": current_user.user_on
+        }
+    )
+
+# 需要特定权限的接口
+@router.post("/admin-endpoint", dependencies=[Depends(require_permissions("admin:access"))])
+async def admin_endpoint(
+    request: Request,
+    current_user: TokenData = Depends(get_current_user)
+):
+    """
+    需要特定权限的接口示例
+    """
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={
+            "user_id": current_user.id,
+            "user_name": current_user.user_on,
+            "ip_address": request.client.host
+        }
+    )
+
+# 同时使用 Request 和权限验证
+@router.put("/mixed-endpoint")
+async def mixed_endpoint(
+    request: Request,
+    current_user: TokenData = Depends(require_permissions("user:update"))
+):
+    """
+    结合 Request 和权限验证的接口示例
+    """
+    # 从请求体获取数据
+    body = await request.json()
+    
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={
+            "user_id": current_user.id,
+            "request_method": request.method,
+            "request_body": body
+        }
+    )
+```
+
+## 6. 技术栈
 
 - **框架**: FastAPI 
 - **数据库**: MySQL - 关系型数据库
@@ -169,7 +402,7 @@ teaching-evaluation-system/
 - **数据库迁移**: Alembic - 数据库迁移工具
 - **环境变量**: python-dotenv - 环境变量管理
 
-## 5. 依赖管理
+## 7. 依赖管理
 
 项目依赖定义在 [requirements.txt](file:///D:/teaching-evaluation-system/backend/requirements.txt) 文件中，主要包括：
 
@@ -185,7 +418,7 @@ teaching-evaluation-system/
 - bcrypt~=5.0.0
 - asyncmy~=0.2.10
 
-## 6. 数据库迁移
+## 8. 数据库迁移
 
 项目使用 Alembic 进行数据库迁移管理，所有迁移文件存储在 [alembic/versions/](file:///D:/teaching-evaluation-system/backend/alembic/versions) 目录中，包括：
 
@@ -198,7 +431,7 @@ teaching-evaluation-system/
 - `c7d2deca3812_fixuser_id.py` - 修复用户ID字段
 - `dad04216851f_fixmodels.py` - 模型修复
 
-## 7. 部署说明
+## 9. 部署说明
 
 1. 安装依赖：`pip install -r requirements.txt`
 2. 配置环境变量：在 [.env](file:///D:/teaching-evaluation-system/backend/.env) 文件中设置数据库连接信息
@@ -206,35 +439,35 @@ teaching-evaluation-system/
 4. 运行数据库迁移：`alembic upgrade head`
 5. 启动应用：`python main.py`
 
-## 8. 未来可扩展模块
+## 10. 未来可扩展模块
 
 系统架构设计考虑了未来的扩展需求，以下是一些可能新增的模块建议：
 
-### 8.1 爬虫模块 (app/spiders/)
+### 10.1 爬虫模块 (app/spiders/)
 - **nnlg_spider/**: 南宁理工教务系统爬虫 - 用于自动同步课表、学生信息等
 - **evaluation_spider/**: 评教数据爬虫 - 从其他系统抓取历史评教数据
 
-### 8.2 消息通知模块 (app/notification/)
+### 10.2 消息通知模块 (app/notification/)
 - **sms/**: 短信通知功能
 - **email/**: 邮件通知功能
 - **wechat/**: 微信消息推送功能
 
-### 8.3 报表模块 (app/reports/)
+### 10.3 报表模块 (app/reports/)
 - **excel/**: Excel 报表生成
 - **pdf/**: PDF 报告生成
 - **charts/**: 数据可视化图表
 
-### 8.4 文件处理模块 (app/files/)
+### 10.4 文件处理模块 (app/files/)
 - **upload/**: 文件上传处理
 - **storage/**: 文件存储管理
 - **export/**: 数据导出功能
 
-### 8.5 第三方集成 (app/integration/)
+### 10.5 第三方集成 (app/integration/)
 - **wechat/**: 微信集成接口
 - **ldap/**: LDAP 认证集成
 - **sso/**: 单点登录集成
 
-### 8.6 数据分析模块 (app/analytics/)
+### 10.6 数据分析模块 (app/analytics/)
 - **evaluation_analysis/**: 评教数据分析
 - **trend_analysis/**: 趋势分析
 - **predictive/**: 预测模型

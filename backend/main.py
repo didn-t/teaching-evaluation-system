@@ -1,10 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from app.core.config import APP_NAME, APP_VERSION, DEBUG
 import uvicorn
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import (
+    http_exception_handler,
+    validation_exception_handler,
+    general_exception_handler
+)
 
 # 初始化 FastAPI 应用
 app = FastAPI(
@@ -14,6 +20,9 @@ app = FastAPI(
 )
 
 
+# 导入认证中间件
+from app.middleware.auth_middleware import AuthMiddleware
+
 # 配置 CORS
 app.add_middleware(
     CORSMiddleware,
@@ -22,6 +31,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 添加认证中间件
+app.add_middleware(AuthMiddleware)
+
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(Exception, general_exception_handler)
 
 
 # 根路由

@@ -19,6 +19,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/health/db",
             "/api/v1/teaching-eval/user/login",
             "/api/v1/teaching-eval/user/register",
+            
         ]
 
         # 检查是否为公共路径
@@ -52,6 +53,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/api/v1/teaching-eval/user/login",
             "/api/v1/teaching-eval/user/register",
             "/api/v1/teaching-eval/user/update",
+            "/api/v1/teaching-eval/eval/evaluation/submit",
         ]
 
         if request.url.path in token_paths and request.method in ["POST", "PATCH"]:

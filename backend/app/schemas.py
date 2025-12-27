@@ -404,6 +404,31 @@ class EvaluationResponse(EvaluationBase):
         from_attributes = True
 
 
+# 提交评教请求模型(前端提交)
+class EvaluationSubmit(BaseModel):
+    timetable_id: int
+    total_score: int = Field(..., ge=0, le=100, description='评教总分（0-100）')
+    dimension_scores: Dict[str, Any] = Field(..., description='各维度得分')
+    advantage_content: Optional[str] = Field(None, description='优点描述')
+    problem_content: Optional[str] = Field(None, description='问题描述')
+    improve_suggestion: Optional[str] = Field(None, description='改进建议')
+    listen_date: datetime = Field(..., description='实际听课日期')
+    listen_duration: Optional[int] = Field(None, ge=0, description='听课时长（分钟）')
+    listen_location: Optional[str] = Field(None, max_length=64, description='实际听课地点')
+    is_anonymous: bool = Field(False, description='是否匿名')
+
+
+class EvaluationSubmitResponse(BaseModel):
+    id: int
+    evaluation_no: str
+    total_score: int
+    score_level: str
+    submit_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # 听课记录相关模型
 class ListenRecordScores(BaseModel):
     teachingAttitude: float

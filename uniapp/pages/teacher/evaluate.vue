@@ -27,13 +27,25 @@
           <picker mode="selector" :range="roleOptions" @change="onRoleChange">
             <view class="picker-text">{{ selectedRoleLabel }}</view>
           </picker>
-          <text class="help-text">可选择以学生或教师身份进行评价</text>
+          <text class="help-text">以教师身份进行评价</text>
+        </view>
+        <view class="field">
+          <text class="label">提交状态</text>
+          <picker mode="selector" :range="statusOptions" :range-key="'label'" @change="onStatusChange">
+            <view class="picker-text">{{ selectedStatusLabel }}</view>
+          </picker>
+          <text class="help-text">选择课中或课后提交</text>
         </view>
       </view>
     </view>
 
     <view v-if="selectedCourseId" class="panel">
-      <evaluation-form :show-anonymous="showAnonymous" @submit="handleSubmit" @cancel="handleCancel" />
+      <evaluation-form 
+        :show-anonymous="showAnonymous" 
+        :submit-status="submitStatus"
+        @submit="handleSubmit" 
+        @cancel="handleCancel" 
+      />
     </view>
   </view>
 </template>
@@ -50,32 +62,44 @@ export default {
     return {
       selectedCourseId: '',
       selectedCourseName: '',
-      evaluatorRole: 'student',
-      selectedRoleLabel: '👨‍🎓 学生',
+      evaluatorRole: 'teacher', // 普通老师默认以教师身份进行评价
+      selectedRoleLabel: '👨‍🏫 教师',
       courseOptions: [],
       roleOptions: [
-        { label: '👨‍🎓 学生', value: 'student' },
         { label: '👨‍🏫 教师', value: 'teacher' }
       ],
-      evaluationType: 'evaluation' // 默认是普通评教，也可以是听课评价(listen)
+      submitStatus: 'after', // 提交状态：'during' 课中, 'after' 课后
+      statusOptions: [
+        { label: '⏱️ 课中', value: 'during' },
+        { label: '✅ 课后', value: 'after' }
+      ],
+      selectedStatusLabel: '✅ 课后'
     };
   },
   computed: {
     showAnonymous() {
-      // 简化处理，始终显示匿名选项
+      // 根据学校管理员配置显示匿名选项
+      const config = simpleStore.getConfig();
+      if (config.anonymousMode === 'global' && config.globalAnonymous) {
+        // 全局匿名模式，不显示选项
+        return false;
+      }
+      // 可选匿名模式，显示选项
       return true;
+    },
+    defaultAnonymous() {
+      // 根据配置返回默认匿名状态
+      const config = simpleStore.getConfig();
+      return config.anonymousMode === 'global' && config.globalAnonymous;
     }
   },
   onLoad(options) {
-    // 检查是否是听课评价
-    if (options && options.type === 'listen') {
-      this.evaluationType = 'listen';
-    }
+    // 普通老师和督导老师都可以进行评教，无需权限检查
+    // 统一评教逻辑，不再区分普通评教和听课评教
     this.loadCourses();
     
     // 更新标题
-    this.$scope && this.$scope.$page && (this.$scope.$page.navigationBarTitleText = 
-      this.evaluationType === 'listen' ? '教师端-听课评价' : '教师端-进行评教');
+    this.$scope && this.$scope.$page && (this.$scope.$page.navigationBarTitleText = '教师端-进行评教');
   },
   methods: {
     loadCourses() {
@@ -100,6 +124,11 @@ export default {
       this.evaluatorRole = this.roleOptions[selectedIndex].value;
       this.selectedRoleLabel = this.roleOptions[selectedIndex].label;
     },
+    onStatusChange(e) {
+      const selectedIndex = e.detail.value;
+      this.submitStatus = this.statusOptions[selectedIndex].value;
+      this.selectedStatusLabel = this.statusOptions[selectedIndex].label;
+    },
     handleSubmit(evaluationData) {
       if (!this.selectedCourseId) {
         uni.showToast({
@@ -118,44 +147,75 @@ export default {
         return;
       }
 
+      const currentUser = simpleStore.state.currentUser || {};
+      
+      // 获取课程所属学院信息，确保记录自动留存到各学院每位教师
+      const courseInfo = simpleStore.state.courses.find(c => 
+        (c.id || c._id) == (course.id || course._id)
+      );
+      const college = courseInfo ? courseInfo.college : (currentUser.college || '');
+      
       const evaluation = {
         courseId: course.id || course._id,
         courseName: course.name,
         teacherId: course.teacherId || course.teacherId,
         teacherName: course.teacherName,
+        college: college, // 保存学院信息，确保记录自动留存到各学院
         evaluatorRole: this.evaluatorRole,
-        anonymous: evaluationData.anonymous,
+        anonymous: this.defaultAnonymous || evaluationData.anonymous, // 根据配置设置匿名状态
         scores: evaluationData.scores,
+        suggestions: evaluationData.suggestions || {}, // 保存详细的文字建议（优点、问题、改进方向）
         totalScore: evaluationData.totalScore,
         level: evaluationData.level,
-        suggestion: evaluationData.suggestion,
+        suggestion: evaluationData.suggestion, // 保留合并后的建议文本（兼容旧格式）
+        submitStatus: this.submitStatus, // 保存提交状态（听课中/课后）
         createdAt: new Date().toISOString(),
         id: Date.now() // 简单生成唯一ID
       };
 
       try {
-        if (this.evaluationType === 'listen') {
-          // 听课评价存储到听课记录中
-          const listenRecords = simpleStore.state.listenRecords || [];
-          listenRecords.push(evaluation);
-          simpleStore.state.listenRecords = listenRecords;
-        } else {
-          // 普通评价存储到评价记录中
-          const evaluations = simpleStore.state.evaluations || [];
-          evaluations.push(evaluation);
-          simpleStore.state.evaluations = evaluations;
-        }
+        // ========== 后端接入点：提交评教数据 ==========
+        // TODO: 后期接入后端接口时，可在此处调用API提交评教数据
+        // 示例：
+        // const response = await uni.request({
+        //   url: '/api/evaluations/submit',
+        //   method: 'POST',
+        //   data: evaluation,
+        //   header: {
+        //     'Authorization': 'Bearer ' + token
+        //   }
+        // });
+        // if (response.data.success) {
+        //   // 提交成功
+        // } else {
+        //   // 处理错误
+        // }
+        // ============================================
         
+        // 统一评教逻辑：所有评教都保存到evaluations中，不再区分普通评教和听课评教
+        // 添加评价者信息
+        evaluation.evaluatorId = currentUser.id || currentUser._id;
+        evaluation.evaluatorName = currentUser.name || '未知';
+        
+        const evaluations = simpleStore.state.evaluations || [];
+        evaluations.push(evaluation);
+        simpleStore.state.evaluations = evaluations;
+        
+        // 自动保存记录到各学院每位教师（记录已包含学院和教师信息）
         simpleStore.saveAllToStorage();
 
         uni.showToast({
-          title: '评价提交成功！',
-          icon: 'success'
+          title: '评价提交成功！记录已自动保存，提交后不可修改',
+          icon: 'success',
+          duration: 2000
         });
 
         setTimeout(() => {
-          uni.navigateBack();
-        }, 1500);
+          // 提交成功后返回首页（使用switchTab因为这是tabBar页面）
+          uni.switchTab({
+            url: '/pages/teacher/index'
+          });
+        }, 2000);
       } catch (error) {
         uni.showToast({
           title: '评价提交失败',
@@ -164,10 +224,16 @@ export default {
       }
     },
     handleCancel() {
-      uni.navigateBack();
+      // 取消时返回首页（使用switchTab因为这是tabBar页面）
+      uni.switchTab({
+        url: '/pages/teacher/index'
+      });
     },
     navigateBack() {
-      uni.navigateBack();
+      // 返回首页（使用switchTab因为这是tabBar页面）
+      uni.switchTab({
+        url: '/pages/teacher/index'
+      });
     }
   }
 };

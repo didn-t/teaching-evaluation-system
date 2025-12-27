@@ -20,6 +20,7 @@
       <view class="login-tips">
         <text class="tips-title">演示账号：</text>
         <text class="tip">教师：teacher1 / 123456</text>
+        <text class="tip">督导老师：supervisor1 / 123456</text>
         <text class="tip">学院管理员：college1 / 123456</text>
         <text class="tip">学校管理员：school1 / 123456</text>
       </view>
@@ -46,50 +47,63 @@ export default {
     onPasswordInput(e) {
       this.password = e.detail.value;
     },
-    async handleLogin() {
+    handleLogin() {
       this.error = '';
       
+      // 输入验证
       if (!this.username || !this.password) {
         this.error = '请输入用户名和密码';
         return;
       }
       
-      try {
-        this.loading = true;
-        const success = simpleStore.login(this.username, this.password);
+      // 本地验证登录（不进行服务器连接检测）
+      // TODO: 后期接入后端接口时，可在此处调用登录API
+      // 示例：const response = await uni.request({
+      //   url: '/api/auth/login',
+      //   method: 'POST',
+      //   data: { username: this.username, password: this.password }
+      // });
+      // if (response.data.success) { ... }
+      
+      this.loading = true;
+      
+      // 使用本地存储进行验证，直接跳转，不检测服务器连接
+      const success = simpleStore.login(this.username, this.password);
+      
+      if (success) {
+        const user = simpleStore.state.currentUser;
         
-        if (success) {
-          const user = simpleStore.state.currentUser;
-          
-          // 确保用户信息已设置
-          if (!user || !user.role) {
-            this.error = '用户信息获取失败，请重试';
-            this.loading = false;
-            return;
-          }
-          
-          // 根据用户角色跳转到相应页面
-          if (user.role === 'teacher') {
-            uni.switchTab({
-              url: '/pages/teacher/index'
-            });
-          } else if (user.role === 'college_admin') {
-            uni.redirectTo({
-              url: '/pages/college/index'
-            });
-          } else if (user.role === 'school_admin') {
-            uni.redirectTo({
-              url: '/pages/school/index'
-            });
-          } else {
-            this.error = '用户角色无效：' + user.role;
-          }
-        } else {
-          this.error = '登录失败，请检查用户名和密码';
+        // 确保用户信息已设置
+        if (!user || !user.role) {
+          this.error = '用户信息获取失败';
+          this.loading = false;
+          return;
         }
-      } catch (err) {
-        this.error = '登录失败：' + (err.message || '未知错误');
-      } finally {
+        
+        // 根据用户角色直接跳转到相应页面（不进行任何网络检测）
+        if (user.role === 'teacher') {
+          uni.switchTab({
+            url: '/pages/teacher/index'
+          });
+        } else if (user.role === 'supervisor') {
+          // 督导老师直接跳转到督导端首页，不进行服务器连接检测
+          uni.redirectTo({
+            url: '/pages/supervisor/index'
+          });
+        } else if (user.role === 'college_admin') {
+          uni.redirectTo({
+            url: '/pages/college/index'
+          });
+        } else if (user.role === 'school_admin') {
+          uni.redirectTo({
+            url: '/pages/school/index'
+          });
+        } else {
+          this.error = '用户角色无效：' + user.role;
+          this.loading = false;
+        }
+      } else {
+        this.error = '登录失败，请检查用户名和密码';
         this.loading = false;
       }
     }

@@ -56,6 +56,31 @@
       </view>
     </view>
 
+    <view class="panel">
+      <view class="panel-title">
+        <text class="panel-title-text">数据备份与维护</text>
+      </view>
+      
+      <view class="form-group">
+        <view class="form-item">
+          <text class="label">数据备份</text>
+          <button @click="handleBackup" class="action-btn backup">备份数据</button>
+        </view>
+        <view class="form-item">
+          <text class="label">数据恢复</text>
+          <button @click="handleRestore" class="action-btn restore">恢复数据</button>
+        </view>
+        <view class="form-item">
+          <text class="label">数据清理</text>
+          <button @click="handleCleanup" class="action-btn cleanup">清理过期数据</button>
+        </view>
+        <view class="form-item">
+          <text class="label">系统维护</text>
+          <button @click="handleMaintenance" class="action-btn maintenance">执行维护</button>
+        </view>
+      </view>
+    </view>
+
     <view class="actions">
       <button @click="saveConfig" class="action-button primary">保存设置</button>
     </view>
@@ -90,23 +115,198 @@ export default {
       this.config = simpleStore.getConfig();
     },
     toggleAnonymousMode(e) {
-      this.config.anonymousMode = e.target.value ? 'global' : 'optional';
-      this.config.globalAnonymous = e.target.value;
+      // 切换匿名模式：全局匿名（统一匿名）或可选匿名（用户自主选择）
+      // 兼容 Web 和微信小程序
+      const value = e.detail ? e.detail.value : (e.target ? e.target.checked : false);
+      this.config.anonymousMode = value ? 'global' : 'optional';
+      this.config.globalAnonymous = value;
     },
     toggleSelfListen(e) {
-      this.config.allowSelfListen = e.target.value;
+      // 兼容 Web 和微信小程序
+      const value = e.detail ? e.detail.value : (e.target ? e.target.checked : false);
+      this.config.allowSelfListen = value;
     },
     toggleAuditLog(e) {
-      this.config.auditLog = e.target.value;
+      // 兼容 Web 和微信小程序
+      const value = e.detail ? e.detail.value : (e.target ? e.target.checked : false);
+      this.config.auditLog = value;
     },
     onSemesterChange(e) {
-      this.currentSemester = e.target.value;
+      // 兼容 Web 和微信小程序
+      const value = e.detail ? e.detail.value : (e.target ? e.target.value : '');
+      this.currentSemester = value;
     },
     saveConfig() {
-      // 这里应该调用API保存配置，目前仅做演示
+      // TODO: 后期接入后端接口时，可在此处保存配置
+      // 示例：
+      // try {
+      //   await uni.request({
+      //     url: '/api/admin/config',
+      //     method: 'POST',
+      //     data: this.config,
+      //     timeout: 10000
+      //   });
+      //   uni.showToast({
+      //     title: '保存成功',
+      //     icon: 'success'
+      //   });
+      // } catch (error) {
+      //   console.error('保存配置失败:', error);
+      //   uni.showToast({
+      //     title: '保存失败，请稍后重试',
+      //     icon: 'none'
+      //   });
+      // }
+      
+      // 当前使用本地存储保存配置
+      simpleStore.state.config = { ...this.config };
+      simpleStore.saveAllToStorage();
+      
       uni.showToast({
         title: '保存成功',
         icon: 'success'
+      });
+    },
+    handleBackup() {
+      uni.showModal({
+        title: '数据备份',
+        content: '确定要备份所有数据吗？',
+        success: (res) => {
+          if (res.confirm) {
+            try {
+              // 备份所有数据到本地存储
+              const backupData = {
+                users: simpleStore.state.users,
+                colleges: simpleStore.state.colleges,
+                courses: simpleStore.state.courses,
+                evaluations: simpleStore.state.evaluations,
+                listenRecords: simpleStore.state.listenRecords,
+                config: simpleStore.state.config,
+                backupTime: new Date().toISOString()
+              };
+              uni.setStorageSync('data_backup', backupData);
+              uni.showToast({
+                title: '备份成功',
+                icon: 'success'
+              });
+            } catch (error) {
+              console.error('备份失败:', error);
+              uni.showToast({
+                title: '备份失败',
+                icon: 'none'
+              });
+            }
+          }
+        }
+      });
+    },
+    handleRestore() {
+      uni.showModal({
+        title: '数据恢复',
+        content: '确定要恢复备份数据吗？此操作将覆盖当前所有数据！',
+        success: (res) => {
+          if (res.confirm) {
+            try {
+              const backupData = uni.getStorageSync('data_backup');
+              if (!backupData) {
+                uni.showToast({
+                  title: '没有找到备份数据',
+                  icon: 'none'
+                });
+                return;
+              }
+              // 恢复数据
+              simpleStore.state.users = backupData.users || simpleStore.state.users;
+              simpleStore.state.colleges = backupData.colleges || simpleStore.state.colleges;
+              simpleStore.state.courses = backupData.courses || simpleStore.state.courses;
+              simpleStore.state.evaluations = backupData.evaluations || simpleStore.state.evaluations;
+              simpleStore.state.listenRecords = backupData.listenRecords || simpleStore.state.listenRecords;
+              simpleStore.state.config = backupData.config || simpleStore.state.config;
+              simpleStore.saveAllToStorage();
+              uni.showToast({
+                title: '恢复成功',
+                icon: 'success'
+              });
+            } catch (error) {
+              console.error('恢复失败:', error);
+              uni.showToast({
+                title: '恢复失败',
+                icon: 'none'
+              });
+            }
+          }
+        }
+      });
+    },
+    handleCleanup() {
+      uni.showModal({
+        title: '数据清理',
+        content: '确定要清理过期数据吗？此操作不可恢复！',
+        success: (res) => {
+          if (res.confirm) {
+            try {
+              // 清理一年前的评价数据
+              const oneYearAgo = new Date();
+              oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+              
+              simpleStore.state.evaluations = simpleStore.state.evaluations.filter(e => {
+                if (!e.createdAt) return true;
+                return new Date(e.createdAt) > oneYearAgo;
+              });
+              
+              simpleStore.state.listenRecords = simpleStore.state.listenRecords.filter(r => {
+                if (!r.createdAt) return true;
+                return new Date(r.createdAt) > oneYearAgo;
+              });
+              
+              simpleStore.saveAllToStorage();
+              uni.showToast({
+                title: '清理完成',
+                icon: 'success'
+              });
+            } catch (error) {
+              console.error('清理失败:', error);
+              uni.showToast({
+                title: '清理失败',
+                icon: 'none'
+              });
+            }
+          }
+        }
+      });
+    },
+    handleMaintenance() {
+      uni.showModal({
+        title: '系统维护',
+        content: '确定要执行系统维护吗？',
+        success: (res) => {
+          if (res.confirm) {
+            try {
+              // 执行维护操作：清理无效数据、优化存储等
+              // 清理无效的评价记录
+              simpleStore.state.evaluations = simpleStore.state.evaluations.filter(e => 
+                e && e.teacherId && e.totalScore !== undefined
+              );
+              
+              // 清理无效的听课记录
+              simpleStore.state.listenRecords = simpleStore.state.listenRecords.filter(r => 
+                r && r.teacherId && r.totalScore !== undefined
+              );
+              
+              simpleStore.saveAllToStorage();
+              uni.showToast({
+                title: '维护完成',
+                icon: 'success'
+              });
+            } catch (error) {
+              console.error('维护失败:', error);
+              uni.showToast({
+                title: '维护失败',
+                icon: 'none'
+              });
+            }
+          }
+        }
       });
     },
     handleLogout() {
@@ -240,5 +440,36 @@ export default {
   background: #4f46e5;
   color: #fff;
   min-width: 120px;
+}
+
+.action-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  /* #ifdef H5 */
+  cursor: pointer;
+  /* #endif */
+}
+
+.action-btn.backup {
+  background: #10b981;
+  color: white;
+}
+
+.action-btn.restore {
+  background: #3b82f6;
+  color: white;
+}
+
+.action-btn.cleanup {
+  background: #f59e0b;
+  color: white;
+}
+
+.action-btn.maintenance {
+  background: #8b5cf6;
+  color: white;
 }
 </style>

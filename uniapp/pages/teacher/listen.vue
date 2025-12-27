@@ -42,9 +42,25 @@
             <text class="score-item">教学方法：{{ record.scores.method }}分</text>
             <text class="score-item">教学效果：{{ record.scores.effect }}分</text>
           </view>
-          <view v-if="record.suggestion" class="content">
-            <text class="strong">意见与建议：</text>
-            <text>{{ record.suggestion }}</text>
+          <view v-if="record.suggestion || (record.suggestions && (record.suggestions.advantages || record.suggestions.problems || record.suggestions.improvements))" class="content">
+            <text class="strong">文字评价建议：</text>
+            <view v-if="record.suggestions && (record.suggestions.advantages || record.suggestions.problems || record.suggestions.improvements)" class="suggestions-detail">
+              <view v-if="record.suggestions.advantages" class="suggestion-part">
+                <text class="suggestion-part-label">优点：</text>
+                <text class="suggestion-part-text">{{ record.suggestions.advantages }}</text>
+              </view>
+              <view v-if="record.suggestions.problems" class="suggestion-part">
+                <text class="suggestion-part-label">问题：</text>
+                <text class="suggestion-part-text">{{ record.suggestions.problems }}</text>
+              </view>
+              <view v-if="record.suggestions.improvements" class="suggestion-part">
+                <text class="suggestion-part-label">改进方向：</text>
+                <text class="suggestion-part-text">{{ record.suggestions.improvements }}</text>
+              </view>
+            </view>
+            <view v-else-if="record.suggestion" class="suggestion-text">
+              <text>{{ record.suggestion }}</text>
+            </view>
           </view>
         </view>
       </view>
@@ -76,6 +92,7 @@ export default {
   },
   onLoad() {
     this.loadUserData();
+    // 普通老师和督导老师都可以进行听课评价，无需权限检查
     this.loadListenRecords();
   },
   methods: {
@@ -84,7 +101,13 @@ export default {
     },
     loadListenRecords() {
       try {
-        this.listenRecords = simpleStore.getTeacherListenRecords(this.currentUser.id || this.currentUser._id);
+        // 获取当前用户作为听课者提交的听课记录
+        const userId = this.currentUser.id || this.currentUser._id;
+        this.listenRecords = simpleStore.state.listenRecords.filter(r => 
+          r.listenerId == userId
+        );
+        // 按时间倒序排序
+        this.listenRecords.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       } catch (error) {
         console.error('加载听课记录失败:', error);
         uni.showToast({
@@ -282,6 +305,47 @@ export default {
 .strong {
   font-weight: bold;
   margin-right: 8px;
+}
+
+.suggestions-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.suggestion-part {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #4f46e5;
+}
+
+.suggestion-part-label {
+  font-weight: 600;
+  color: #4f46e5;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.suggestion-part-text {
+  color: #333;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.suggestion-text {
+  margin-top: 8px;
+  color: #333;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .empty {

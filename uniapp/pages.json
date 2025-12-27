@@ -25,6 +25,36 @@
       }
     },
     {
+      "path": "pages/supervisor/index",
+      "style": {
+        "navigationBarTitleText": "督导端-工作台"
+      }
+    },
+    {
+      "path": "pages/supervisor/schedule",
+      "style": {
+        "navigationBarTitleText": "督导端-教师课表"
+      }
+    },
+    {
+      "path": "pages/supervisor/evaluate",
+      "style": {
+        "navigationBarTitleText": "督导端-进行评教"
+      }
+    },
+    {
+      "path": "pages/supervisor/listen",
+      "style": {
+        "navigationBarTitleText": "督导端-听课评价"
+      }
+    },
+    {
+      "path": "pages/supervisor/statistics",
+      "style": {
+        "navigationBarTitleText": "督导端-统计汇总"
+      }
+    },
+    {
       "path": "pages/college/index",
       "style": {
         "navigationBarTitleText": "学院管理"
@@ -40,6 +70,18 @@
       "path": "pages/college/data",
       "style": {
         "navigationBarTitleText": "学院数据管理"
+      }
+    },
+    {
+      "path": "pages/college/users",
+      "style": {
+        "navigationBarTitleText": "用户管理"
+      }
+    },
+    {
+      "path": "pages/college/notices",
+      "style": {
+        "navigationBarTitleText": "评教通知"
       }
     },
     {
@@ -65,6 +107,18 @@
       "style": {
         "navigationBarTitleText": "数据管理"
       }
+    },
+    {
+      "path": "pages/school/users",
+      "style": {
+        "navigationBarTitleText": "用户管理"
+      }
+    },
+    {
+      "path": "pages/school/notices",
+      "style": {
+        "navigationBarTitleText": "通知管理"
+      }
     }
   ],
   "globalStyle": {
@@ -88,8 +142,8 @@
       },
       {
         "pagePath": "pages/teacher/evaluate",
-        "iconPath": "static/icon/write.png",
-        "selectedIconPath": "static/icon/write-active.png",
+        "iconPath": "static/icon/usercenter.png",
+        "selectedIconPath": "static/icon/usercenter-active.png",
         "text": "评教"
       }
     ]
@@ -109,6 +163,11 @@
       {
         "name": "school_admin",
         "path": "pages/school/index",
+        "query": ""
+      },
+      {
+        "name": "supervisor",
+        "path": "pages/supervisor/index",
         "query": ""
       }
     ]

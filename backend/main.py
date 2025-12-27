@@ -3,8 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from app.core.config import APP_NAME, APP_VERSION, DEBUG
 import uvicorn
-from fastapi import Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import HTTPException
 
 from app.core.exceptions import (
     http_exception_handler,
@@ -59,19 +58,6 @@ app.include_router(teaching_eval_api.router, prefix="/api/v1/teaching-eval/eval"
 def health_check():
     return {"status": "healthy"}
 
-
-from app.database import get_db
-@app.get("/health/db")
-def database_health_check(db: Session = Depends(get_db)):
-    """
-    简单的数据库连接检查
-    """
-    try:
-        # 执行简单查询测试连接
-        db.execute("SELECT 1")
-        return {"status": "healthy", "database": "connected"}
-    except Exception:
-        return {"status": "unhealthy", "database": "disconnected"}, 503
 
 
 if __name__ == "__main__":

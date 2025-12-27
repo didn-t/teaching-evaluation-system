@@ -37,14 +37,28 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     token_data = verify_token(request)
                     request.state.current_user = token_data
                 except HTTPException as e:
-                    return JSONResponse(
-                        status_code=e.status_code,
-                        content={
-                            "code": e.status_code,
-                            "msg": e.detail,
-                            "data": None
-                        }
-                    )
+                    # 检查是否是来自Authorization头部的token验证失败
+                    authorization = request.headers.get("Authorization")
+                    if authorization and authorization.startswith("Bearer "):
+                        # 如果是Authorization头部的token验证失败，返回标准的401响应
+                        return JSONResponse(
+                            status_code=e.status_code,
+                            content={
+                                "code": e.status_code,
+                                "msg": e.detail,
+                                "data": None
+                            }
+                        )
+                    else:
+                        # 其他情况返回标准的401响应
+                        return JSONResponse(
+                            status_code=e.status_code,
+                            content={
+                                "code": e.status_code,
+                                "msg": e.detail,
+                                "data": None
+                            }
+                        )
 
                 response = await call_next(request)
 
@@ -66,8 +80,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     value=token_value,
                     httponly=DEBUG,
                     secure=not DEBUG,
-                    max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                    max_age=int(ACCESS_TOKEN_EXPIRE_MINUTES) * 60,
                     path="/"
                 )
+                
+                # 同时在响应头中设置 Authorization，方便客户端使用
+                response.headers["Authorization"] = f"Bearer {token_value}"
 
         return response

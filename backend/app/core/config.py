@@ -15,6 +15,16 @@ MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
 MYSQL_HOST = os.getenv("MYSQL_HOST")
 MYSQL_PORT = os.getenv("MYSQL_PORT")
 MYSQL_DB = os.getenv("MYSQL_DB")
+APP_ENV = os.getenv("APP_ENV")
+
+# 如果使用 docker 运行，则使用 docker 中的数据库
+if APP_ENV == "docker":
+    MYSQL_HOST = os.getenv("MYSQL_HOST_DOCKER", "db")
+else:
+    MYSQL_HOST = os.getenv("MYSQL_HOST_LOCAL", "127.0.0.1")
+
+print("APP_ENV =", APP_ENV)
+
 
 # JWT 配置
 SECRET_KEY = os.getenv("SECRET_KEY")

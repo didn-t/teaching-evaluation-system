@@ -74,7 +74,7 @@ async def login(form: UserBase, request: Request, db: AsyncSession = Depends(get
     """用户登录"""
     user = await get_user(db, form.user_on)
     if not user:
-        raise HTTPException(status_code=400, detail="用户不存在")
+        raise HTTPException(status_code=400, detail="账号或密码错误")
 
     if not verify_password(form.password, user.password):
         raise HTTPException(status_code=401, detail="账号或密码错误")

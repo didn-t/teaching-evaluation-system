@@ -60,13 +60,15 @@ def verify_token(request: Request) -> Optional[TokenData]:
     if not token:
         # 如果Cookie中没有token，尝试从Authorization头部获取
         authorization = request.headers.get("Authorization")
+        print("front", authorization)
         if authorization and authorization.startswith("Bearer "):
+            print(authorization)
             token = authorization[7:]
 
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="无法验证，请重新登录",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -78,6 +80,6 @@ def verify_token(request: Request) -> Optional[TokenData]:
         print("token验证失败")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="无法验证，请重新登录",
             headers={"WWW-Authenticate": "Bearer"},
         )

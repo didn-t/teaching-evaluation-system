@@ -521,3 +521,116 @@ class ConfigResponse(ConfigBase):
 
     class Config:
         from_attributes = True
+
+#评教维度配置响应模型(用于返回评教维度的配置信息)
+class EvaluationDimensionResponse(BaseModel):
+    id: int
+    dimension_code: str
+    dimension_name: str
+    max_score: int
+    weight: float
+    sort_order: int
+    description: Optional[str] = None
+    scoring_criteria: Optional[Dict[str, Any]] = None
+    is_required: bool = True
+    status: int = 1
+
+    class Config:
+        from_attributes = True
+
+#评教审核请求模型(同于审核评教记录时提交请求：)
+class EvaluationReviewRequest(BaseModel):
+    status: int = Field(..., ge=0, le=2, description='状态 0-作废 1-有效 2-待审核')
+    review_comment: Optional[str] = Field(None, description='审核意见')
+
+#教师评教详情响应模型(用于返回单条评教记录的完整详情)
+class TeacherEvaluationDetailResponse(BaseModel):
+    id: int
+    evaluation_no: str
+    timetable_id: int
+    course_name: str
+    course_type: str
+    class_name: str
+    teach_teacher_id: int
+    teach_teacher_name: str
+    total_score: int
+    dimension_scores: Dict[str, Any]
+    score_level: str
+    advantage_content: Optional[str] = None
+    problem_content: Optional[str] = None
+    improve_suggestion: Optional[str] = None
+    listen_date: datetime
+    listen_duration: Optional[int] = None
+    listen_location: Optional[str] = None
+    is_anonymous: bool
+    status: int
+    submit_time: datetime
+    listen_teacher_id: Optional[int] = None
+    listen_teacher_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+#教师统计响应模型(用于返回教师的评教统计数据：)
+class TeacherStatisticsResponse(BaseModel):
+    teacher_id: int
+    teacher_name: str
+    college_id: int
+    college_name: str
+    total_evaluation_num: int
+    avg_total_score: Optional[float] = None
+    max_score: Optional[int] = None
+    min_score: Optional[int] = None
+    dimension_avg_scores: Optional[Dict[str, Any]] = None
+    school_rank: Optional[int] = None
+    school_total: Optional[int] = None
+    college_rank: Optional[int] = None
+    college_total: Optional[int] = None
+    score_distribution: Optional[Dict[str, int]] = None
+    high_freq_problems: Optional[List[str]] = None
+    high_freq_suggestions: Optional[List[str]] = None
+
+    class Config:
+        from_attributes = True
+
+#学院统计响应模型(用于返回学院的评教统计数据)
+class CollegeStatisticsResponse(BaseModel):
+    college_id: int
+    college_name: str
+    total_teacher_num: int
+    total_evaluation_num: int
+    avg_total_score: Optional[float] = None
+    dimension_avg_scores: Optional[Dict[str, Any]] = None
+    school_rank: Optional[int] = None
+    school_total: Optional[int] = None
+    excellent_rate: Optional[float] = None
+    score_distribution: Optional[Dict[str, int]] = None
+    high_freq_problems: Optional[List[str]] = None
+
+    class Config:
+        from_attributes = True
+
+#全校统计响应模型(用于返回全校范围的评教统计汇总)
+class SchoolStatisticsResponse(BaseModel):
+    total_college_num: int
+    total_teacher_num: int
+    total_evaluation_num: int
+    avg_total_score: Optional[float] = None
+    dimension_avg_scores: Optional[Dict[str, Any]] = None
+    excellent_rate: Optional[float] = None
+    score_distribution: Optional[Dict[str, int]] = None
+    college_rankings: Optional[List[Dict[str, Any]]] = None
+
+    class Config:
+        from_attributes = True
+
+#评教列表查询模型(用于分页查询评教记录时的条件筛选)
+class EvaluationListQuery(BaseModel):
+    page: int = Field(1, ge=1, description='页码')
+    page_size: int = Field(10, ge=1, le=100, description='每页数量')
+    teacher_id: Optional[int] = Field(None, description='授课教师ID')
+    course_name: Optional[str] = Field(None, description='课程名称')
+    score_level: Optional[str] = Field(None, description='评分等级')
+    status: Optional[int] = Field(None, description='状态')
+    start_date: Optional[datetime] = Field(None, description='开始日期')
+    end_date: Optional[datetime] = Field(None, description='结束日期')

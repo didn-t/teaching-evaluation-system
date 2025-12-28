@@ -1,608 +1,606 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import and_, or_
+# app/api/v1/teaching_eval/eval.py
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.schemas import (
     BaseResponse,
     TokenData,
     EvaluationSubmit,
-    EvaluationSubmitResponse,
-    TeachingEvaluationResponse,
-    EvaluationDimensionResponse,
     EvaluationReviewRequest,
-    TeacherEvaluationDetailResponse,
-    TeacherStatisticsResponse,
-    CollegeStatisticsResponse,
-    SchoolStatisticsResponse
 )
-from app.crud.teaching_eval.evaluation import (
-    create_evaluation,
-    get_evaluation_by_id,
-    get_timetable_by_id,
-    check_duplicate_evaluation,
-    get_evaluation_dimensions as get_dimension_list,
-    get_evaluations_by_teacher as get_teacher_eval_list,
-    get_evaluations_by_timetable as get_timetable_eval_list,
-    get_teacher_statistics as get_teacher_stats,
-    get_college_statistics as get_college_stats,
-    get_school_statistics as get_school_stats,
-    update_evaluation_status_crud
+from app.core.deps import get_current_user, require_access
+from app.crud.evaluation import evaluation_crud
+
+# 如果你暂时还没把 college/school 统计迁移到 evaluation_crud，
+# 可以先继续沿用旧函数（有的话就打开下面 import）
+# from app.crud.evaluation import get_college_statistics, get_school_statistics
+
+router = APIRouter(prefix="", tags=["评教管理"])
+
+
+# -----------------------------
+# 工具：把模型对象序列化成 dict
+# -----------------------------
+def _iso(dt: Optional[datetime]) -> Optional[str]:
+    return dt.isoformat() if dt else None
+
+
+def _timetable_brief(tt) -> dict:
+    if not tt:
+        return {}
+    # 适配你 models 里的 Timetable 字段（没有 teach_time/teach_place）
+    return {
+        "id": tt.id,
+        "academic_year": getattr(tt, "academic_year", None),
+        "semester": getattr(tt, "semester", None),
+        "course_name": getattr(tt, "course_name", None),
+        "course_type": getattr(tt, "course_type", None),
+        "class_name": getattr(tt, "class_name", None),
+        "weekday": getattr(tt, "weekday", None),
+        "weekday_text": getattr(tt, "weekday_text", None),
+        "period": getattr(tt, "period", None),
+        "section_time": getattr(tt, "section_time", None),
+        "week_info": getattr(tt, "week_info", None),
+        "classroom": getattr(tt, "classroom", None),
+    }
+
+
+# -----------------------------
+# 1) 提交评教
+# -----------------------------
+@router.post(
+    "/submit",
+    summary="提交评教",
+    response_model=BaseResponse,
 )
-from app.core.deps import get_current_user
-
-router = APIRouter(prefix="/evaluation", tags=["评教管理"])
-
-
-def get_score_level(score: int) -> str:
-    """根据总分计算等级"""
-    if score >= 90:
-        return "优秀"
-    elif score >= 75:
-        return "良好"
-    elif score >= 60:
-        return "合格"
-    else:
-        return "不合格"
-
-
-@router.post("/submit", response_model=BaseResponse[EvaluationSubmitResponse], summary="提交评教")
 async def submit_evaluation(
     submit_data: EvaluationSubmit,
-    request: Request,
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    current_user: TokenData = Depends(
+        require_access(roles_any=("teacher",), perms_all=("evaluation:submit",))
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     提交听课评教记录
-
-    - 需要登录认证
     - 同一听课教师对同一课表同一天只能评教一次
+    - 不能对自己教授课程评教
     """
-    timetable = await get_timetable_by_id(db, submit_data.timetable_id)
-    if not timetable:
-        raise HTTPException(status_code=404, detail="课表不存在")
-
-    if timetable.teacher_id == current_user.id:
-        raise HTTPException(status_code=400, detail="不能对自己教授的课程进行评教")
-
-    is_duplicate = await check_duplicate_evaluation(
-        db,
-        submit_data.timetable_id,
-        current_user.id,
-        submit_data.listen_date
-    )
-    if is_duplicate:
-        raise HTTPException(status_code=400, detail="该课表今日已由您评教，请勿重复提交")
-
-    evaluation_no = f"EVAL-{datetime.now().strftime('%Y%m%d%H%M%S')}-{hash(current_user.id) % 100000:05d}"
-    score_level = get_score_level(submit_data.total_score)
-
-    from app.models import TeachingEvaluation
-    evaluation = TeachingEvaluation(
-        evaluation_no=evaluation_no,
-        timetable_id=submit_data.timetable_id,
-        teach_teacher_id=timetable.teacher_id,
-        listen_teacher_id=current_user.id,
-        total_score=submit_data.total_score,
-        dimension_scores=submit_data.dimension_scores,
-        score_level=score_level,
-        advantage_content=submit_data.advantage_content,
-        problem_content=submit_data.problem_content,
-        improve_suggestion=submit_data.improve_suggestion,
-        listen_date=submit_data.listen_date,
-        listen_duration=submit_data.listen_duration,
-        listen_location=submit_data.listen_location,
-        is_anonymous=submit_data.is_anonymous,
-        status=1,
-        submit_time=datetime.now()
-    )
-
-    db.add(evaluation)
     try:
-        await db.commit()
-        await db.refresh(evaluation)
+        ev = await evaluation_crud.submit(
+            db,
+            timetable_id=submit_data.timetable_id,
+            listen_teacher_id=current_user.id,
+            total_score=submit_data.total_score,
+            dimension_scores=submit_data.dimension_scores,
+            listen_date=submit_data.listen_date,
+            advantage_content=submit_data.advantage_content,
+            problem_content=submit_data.problem_content,
+            improve_suggestion=submit_data.improve_suggestion,
+            listen_duration=submit_data.listen_duration,
+            listen_location=submit_data.listen_location,
+            is_anonymous=submit_data.is_anonymous,
+            status=1,  # 默认有效/通过（你也可以改为 2=待审核）
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"提交评教失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"提交评教失败: {e}")
 
     return BaseResponse(
         code=200,
         msg="success",
         data={
-            "id": evaluation.id,
-            "evaluation_no": evaluation.evaluation_no,
-            "total_score": evaluation.total_score,
-            "score_level": evaluation.score_level,
-            "submit_time": evaluation.submit_time.isoformat() if evaluation.submit_time else None
-        }
+            "id": ev.id,
+            "evaluation_no": ev.evaluation_no,
+            "total_score": ev.total_score,
+            "score_level": ev.score_level,
+            "submit_time": _iso(ev.submit_time),
+        },
     )
 
 
-@router.get("/list", response_model=BaseResponse, summary="获取评教记录列表")
-async def get_evaluation_list(
-    page: int = 1,
-    page_size: int = 10,
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+# -----------------------------
+# 2) 我提交的评教（新增，推荐用这个）
+# -----------------------------
+@router.get(
+    "/mine",
+    summary="我提交的评教列表",
+    response_model=BaseResponse,
+)
+async def list_my_evaluations(
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    start_date: Optional[datetime] = Query(None, description="开始日期"),
+    end_date: Optional[datetime] = Query(None, description="结束日期"),
+    status: Optional[int] = Query(
+        None,
+        description="状态：0作废/1有效/2待审核/3驳回",
+    ),
+    current_user: TokenData = Depends(
+        require_access(roles_any=("teacher",), perms_all=("evaluation:read:self",))
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
-    """
-    获取当前用户的评教记录列表
-
-    - 需要登录认证
-    - 支持分页查询
-    """
-    from app.models import TeachingEvaluation
-
-    skip = (page - 1) * page_size
-
-    result = await db.execute(
-        select(TeachingEvaluation)
-        .where(
-            TeachingEvaluation.listen_teacher_id == current_user.id,
-            TeachingEvaluation.is_delete == False
-        )
-        .order_by(TeachingEvaluation.submit_time.desc())
-        .offset(skip)
-        .limit(page_size)
+    items, total = await evaluation_crud.list_mine(
+        db,
+        listen_teacher_id=current_user.id,
+        page=page,
+        page_size=page_size,
+        start_date=start_date,
+        end_date=end_date,
+        status=status,
     )
-    evaluations = result.scalars().all()
-
-    count_result = await db.execute(
-        select(TeachingEvaluation.id)
-        .where(
-            TeachingEvaluation.listen_teacher_id == current_user.id,
-            TeachingEvaluation.is_delete == False
-        )
-    )
-    total = len(count_result.all())
-
-    evaluation_list = []
-    for eval_item in evaluations:
-        evaluation_list.append({
-            "id": eval_item.id,
-            "evaluation_no": eval_item.evaluation_no,
-            "timetable_id": eval_item.timetable_id,
-            "teach_teacher_id": eval_item.teach_teacher_id,
-            "total_score": eval_item.total_score,
-            "score_level": eval_item.score_level,
-            "is_anonymous": eval_item.is_anonymous,
-            "listen_date": eval_item.listen_date.isoformat() if eval_item.listen_date else None,
-            "submit_time": eval_item.submit_time.isoformat() if eval_item.submit_time else None,
-            "status": eval_item.status
-        })
 
     return BaseResponse(
         code=200,
         msg="success",
         data={
-            "list": evaluation_list,
+            "list": [
+                {
+                    "id": x.id,
+                    "evaluation_no": x.evaluation_no,
+                    "timetable_id": x.timetable_id,
+                    "teach_teacher_id": x.teach_teacher_id,
+                    "total_score": x.total_score,
+                    "score_level": x.score_level,
+                    "is_anonymous": x.is_anonymous,
+                    "listen_date": _iso(x.listen_date),
+                    "submit_time": _iso(x.submit_time),
+                    "status": x.status,
+                }
+                for x in items
+            ],
             "total": total,
             "page": page,
-            "page_size": page_size
-        }
+            "page_size": page_size,
+        },
     )
 
 
-@router.get("/detail/{evaluation_id}", response_model=BaseResponse, summary="获取评教详情")
+# 兼容旧接口：/list 等价于 /mine（你也可以删掉）
+@router.get(
+    "/list",
+    summary="获取评教记录列表（兼容旧接口=mine）",
+    response_model=BaseResponse,
+)
+async def get_evaluation_list_compat(
+    page: int = 1,
+    page_size: int = 10,
+    current_user: TokenData = Depends(
+        require_access(roles_any=("teacher",), perms_all=("evaluation:read:self",))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    items, total = await evaluation_crud.list_mine(
+        db,
+        listen_teacher_id=current_user.id,
+        page=page,
+        page_size=page_size,
+    )
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={
+            "list": [
+                {
+                    "id": x.id,
+                    "evaluation_no": x.evaluation_no,
+                    "timetable_id": x.timetable_id,
+                    "teach_teacher_id": x.teach_teacher_id,
+                    "total_score": x.total_score,
+                    "score_level": x.score_level,
+                    "is_anonymous": x.is_anonymous,
+                    "listen_date": _iso(x.listen_date),
+                    "submit_time": _iso(x.submit_time),
+                    "status": x.status,
+                }
+                for x in items
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        },
+    )
+
+
+# -----------------------------
+# 3) 评教详情：仅本人可看（需要的话可以再加“授课老师可看”接口）
+# -----------------------------
+@router.get(
+    "/detail/{evaluation_id}",
+    summary="获取评教详情（仅本人）",
+    response_model=BaseResponse,
+)
 async def get_evaluation_detail(
     evaluation_id: int,
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    current_user: TokenData = Depends(
+        require_access(roles_any=("teacher",), perms_all=("evaluation:read:self",))
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
-    """
-    获取评教记录详情
-
-    - 需要登录认证
-    - 只能查看自己创建的评教记录
-    """
-    evaluation = await get_evaluation_by_id(db, evaluation_id)
-
-    if not evaluation:
+    ev = await evaluation_crud.get_by_id(db, evaluation_id=evaluation_id)
+    if not ev:
         raise HTTPException(status_code=404, detail="评教记录不存在")
 
-    if evaluation.listen_teacher_id != current_user.id:
+    if ev.listen_teacher_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权查看此评教记录")
 
+    tt = await evaluation_crud.get_timetable(db, timetable_id=ev.timetable_id)
+
     return BaseResponse(
         code=200,
         msg="success",
         data={
-            "id": evaluation.id,
-            "evaluation_no": evaluation.evaluation_no,
-            "timetable_id": evaluation.timetable_id,
-            "teach_teacher_id": evaluation.teach_teacher_id,
-            "listen_teacher_id": evaluation.listen_teacher_id,
-            "total_score": evaluation.total_score,
-            "dimension_scores": evaluation.dimension_scores,
-            "score_level": evaluation.score_level,
-            "advantage_content": evaluation.advantage_content,
-            "problem_content": evaluation.problem_content,
-            "improve_suggestion": evaluation.improve_suggestion,
-            "listen_date": evaluation.listen_date.isoformat() if evaluation.listen_date else None,
-            "listen_duration": evaluation.listen_duration,
-            "listen_location": evaluation.listen_location,
-            "is_anonymous": evaluation.is_anonymous,
-            "status": evaluation.status,
-            "submit_time": evaluation.submit_time.isoformat() if evaluation.submit_time else None,
-            "create_time": evaluation.create_time.isoformat() if evaluation.create_time else None
-        }
+            "id": ev.id,
+            "evaluation_no": ev.evaluation_no,
+            "timetable": _timetable_brief(tt),
+            "teach_teacher_id": ev.teach_teacher_id,
+            "listen_teacher_id": ev.listen_teacher_id,
+            "total_score": ev.total_score,
+            "dimension_scores": ev.dimension_scores,
+            "score_level": ev.score_level,
+            "advantage_content": ev.advantage_content,
+            "problem_content": ev.problem_content,
+            "improve_suggestion": ev.improve_suggestion,
+            "listen_date": _iso(ev.listen_date),
+            "listen_duration": ev.listen_duration,
+            "listen_location": ev.listen_location,
+            "is_anonymous": ev.is_anonymous,
+            "status": ev.status,
+            "submit_time": _iso(ev.submit_time),
+            "create_time": _iso(getattr(ev, "create_time", None)),
+        },
     )
 
 
-@router.delete("/{evaluation_id}", response_model=BaseResponse, summary="删除评教记录")
+# -----------------------------
+# 4) 删除：仅本人（软删除）
+# -----------------------------
+@router.delete(
+    "/{evaluation_id}",
+    summary="删除评教记录（软删除）",
+    response_model=BaseResponse,
+)
 async def delete_evaluation(
     evaluation_id: int,
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    current_user: TokenData = Depends(
+        require_access(roles_any=("teacher",), perms_all=("evaluation:delete:self",))
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
-    """
-    删除评教记录（软删除）
-
-    - 需要登录认证
-    - 只能删除自己创建的评教记录
-    """
-    evaluation = await get_evaluation_by_id(db, evaluation_id)
-
-    if not evaluation:
+    ev = await evaluation_crud.get_by_id(db, evaluation_id=evaluation_id)
+    if not ev:
         raise HTTPException(status_code=404, detail="评教记录不存在")
 
-    if evaluation.listen_teacher_id != current_user.id:
+    if ev.listen_teacher_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权删除此评教记录")
 
-    evaluation.is_delete = True
-    await db.commit()
-    await db.refresh(evaluation)
+    ok = await evaluation_crud.soft_delete(db, evaluation_id=evaluation_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="删除失败")
 
-    return BaseResponse(
-        code=200,
-        msg="success",
-        data=None
-    )
+    return BaseResponse(code=200, msg="success", data=None)
 
 
-@router.put("/{evaluation_id}/status", response_model=BaseResponse, summary="更新评教状态")
-async def update_evaluation_status(
-    evaluation_id: int,
-    status: int = Query(..., ge=1, le=3, description="状态: 1-待审核 2-已通过 3-已驳回"),
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    更新评教记录状态
-
-    - 需要登录认证
-    - status: 1-待审核, 2-已通过, 3-已驳回
-    """
-    evaluation = await get_evaluation_by_id(db, evaluation_id)
-
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评教记录不存在")
-
-    evaluation.status = status
-    await db.commit()
-    await db.refresh(evaluation)
-
-    return BaseResponse(
-        code=200,
-        msg="success",
-        data={
-            "id": evaluation.id,
-            "status": evaluation.status
-        }
-    )
-
-
-@router.get("/dimensions", response_model=BaseResponse, summary="获取评价维度配置")
-async def get_evaluation_dimensions(
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    获取所有启用的评价维度配置
-
-    - 需要登录认证
-    - 返回评教的各个维度及最高分、权重等信息
-    """
-    dimensions = await get_dimension_list(db)
-
-    dimension_list = []
-    for dim in dimensions:
-        dimension_list.append({
-            "id": dim.id,
-            "dimension_code": dim.dimension_code,
-            "dimension_name": dim.dimension_name,
-            "max_score": dim.max_score,
-            "weight": float(dim.weight) if dim.weight else 1.0,
-            "sort_order": dim.sort_order,
-            "description": dim.description,
-            "scoring_criteria": dim.scoring_criteria,
-            "is_required": dim.is_required,
-            "status": dim.status
-        })
-
-    return BaseResponse(
-        code=200,
-        msg="success",
-        data=dimension_list
-    )
-
-
-@router.get("/statistics/teacher/{teacher_id}", response_model=BaseResponse, summary="获取教师评教统计")
-async def fetch_teacher_statistics(
-    teacher_id: int,
-    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
-    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    获取指定教师的评教统计数据
-
-    - 需要登录认证
-    - 支持按学年、学期筛选
-    """
-    from app.models import User
-
-    result = await db.execute(
-        select(User).where(User.id == teacher_id)
-    )
-    teacher = result.scalar_one_or_none()
-    if not teacher:
-        raise HTTPException(status_code=404, detail="教师不存在")
-
-    stat = await get_teacher_stats(db, teacher_id, academic_year, semester)
-
-    return BaseResponse(
-        code=200,
-        msg="success",
-        data=stat
-    )
-
-
-@router.get("/statistics/college/{college_id}", response_model=BaseResponse, summary="获取学院评教统计")
-async def fetch_college_statistics(
-    college_id: int,
-    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
-    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    获取指定学院的评教统计数据
-
-    - 需要登录认证（学院管理员/学校管理员）
-    - 支持按学年、学期筛选
-    """
-    from app.models import College
-
-    result = await db.execute(
-        select(College).where(College.id == college_id)
-    )
-    college = result.scalar_one_or_none()
-    if not college:
-        raise HTTPException(status_code=404, detail="学院不存在")
-
-    stat = await get_college_stats(db, college_id, academic_year, semester)
-
-    return BaseResponse(
-        code=200,
-        msg="success",
-        data=stat
-    )
-
-
-@router.get("/statistics/school", response_model=BaseResponse, summary="获取全校评教统计")
-async def fetch_school_statistics(
-    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
-    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    获取全校评教统计数据
-
-    - 需要登录认证（学校管理员）
-    - 支持按学年、学期筛选
-    """
-    stat = await get_school_stats(db, academic_year, semester)
-
-    return BaseResponse(
-        code=200,
-        msg="success",
-        data=stat
-    )
-
-
-@router.get("/teacher/{teacher_id}", response_model=BaseResponse, summary="获取教师评教记录")
-async def get_teacher_evaluations(
-    teacher_id: int,
+# -----------------------------
+# 5) 我收到的评教（新增，老师看自己被评教）
+# -----------------------------
+@router.get(
+    "/received",
+    summary="我收到的评教列表（授课老师视角）",
+    response_model=BaseResponse,
+)
+async def list_received_evaluations(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
     start_date: Optional[datetime] = Query(None, description="开始日期"),
     end_date: Optional[datetime] = Query(None, description="结束日期"),
     score_level: Optional[str] = Query(None, description="评分等级"),
-    status: Optional[int] = Query(None, description="状态"),
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    status: Optional[int] = Query(None, description="状态：0作废/1有效/2待审核/3驳回"),
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(roles_any=("teacher",), perms_all=("evaluation:read:received",))
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
-    """
-    获取指定教师的所有评教记录
-
-    - 需要登录认证
-    - 支持分页和条件筛选
-    """
-    from app.models import User, Timetable
-
-    result = await db.execute(
-        select(User).where(User.id == teacher_id)
-    )
-    teacher = result.scalar_one_or_none()
-    if not teacher:
-        raise HTTPException(status_code=404, detail="教师不存在")
-
-    evaluations, total = await get_teacher_eval_list(
-        db, teacher_id, page, page_size, start_date, end_date, score_level, status
+    items, total = await evaluation_crud.list_by_teacher(
+        db,
+        teach_teacher_id=current_user.id,
+        page=page,
+        page_size=page_size,
+        start_date=start_date,
+        end_date=end_date,
+        score_level=score_level,
+        status=status,
+        academic_year=academic_year,
+        semester=semester,
     )
 
-    evaluation_list = []
-    for eval_item in evaluations:
-        timetable_result = await db.execute(
-            select(Timetable).where(Timetable.id == eval_item.timetable_id)
+    data_list = []
+    for ev in items:
+        tt = getattr(ev, "timetable", None)
+        listen_teacher = getattr(ev, "listen_teacher", None) if (not ev.is_anonymous) else None
+        data_list.append(
+            {
+                "id": ev.id,
+                "evaluation_no": ev.evaluation_no,
+                "timetable": _timetable_brief(tt),
+                "total_score": ev.total_score,
+                "score_level": ev.score_level,
+                "dimension_scores": ev.dimension_scores,
+                "advantage_content": ev.advantage_content,
+                "problem_content": ev.problem_content,
+                "improve_suggestion": ev.improve_suggestion,
+                "listen_date": _iso(ev.listen_date),
+                "submit_time": _iso(ev.submit_time),
+                "is_anonymous": ev.is_anonymous,
+                "listen_teacher_id": ev.listen_teacher_id if not ev.is_anonymous else None,
+                "listen_teacher_name": getattr(listen_teacher, "user_name", None) if listen_teacher else None,
+                "status": ev.status,
+            }
         )
-        timetable = timetable_result.scalar_one_or_none()
-
-        listen_teacher = None
-        if not eval_item.is_anonymous:
-            listen_result = await db.execute(
-                select(User).where(User.id == eval_item.listen_teacher_id)
-            )
-            listen_teacher = listen_result.scalar_one_or_none()
-
-        evaluation_list.append({
-            "id": eval_item.id,
-            "evaluation_no": eval_item.evaluation_no,
-            "timetable_id": eval_item.timetable_id,
-            "course_name": timetable.course_name if timetable else None,
-            "course_type": timetable.course_type if timetable else None,
-            "class_name": timetable.class_name if timetable else None,
-            "teach_teacher_id": eval_item.teach_teacher_id,
-            "teach_teacher_name": teacher.user_name,
-            "total_score": eval_item.total_score,
-            "dimension_scores": eval_item.dimension_scores,
-            "score_level": eval_item.score_level,
-            "advantage_content": eval_item.advantage_content,
-            "problem_content": eval_item.problem_content,
-            "improve_suggestion": eval_item.improve_suggestion,
-            "listen_date": eval_item.listen_date.isoformat() if eval_item.listen_date else None,
-            "listen_duration": eval_item.listen_duration,
-            "listen_location": eval_item.listen_location,
-            "is_anonymous": eval_item.is_anonymous,
-            "status": eval_item.status,
-            "submit_time": eval_item.submit_time.isoformat() if eval_item.submit_time else None,
-            "listen_teacher_id": eval_item.listen_teacher_id if not eval_item.is_anonymous else None,
-            "listen_teacher_name": listen_teacher.user_name if listen_teacher and not eval_item.is_anonymous else None
-        })
 
     return BaseResponse(
         code=200,
         msg="success",
         data={
-            "list": evaluation_list,
+            "list": data_list,
             "total": total,
             "page": page,
-            "page_size": page_size
-        }
+            "page_size": page_size,
+        },
     )
 
 
-@router.get("/timetable/{timetable_id}", response_model=BaseResponse, summary="按课表查询评教记录")
+# -----------------------------
+# 6) 按课表查询评教记录（管理员/教务视角常用）
+# -----------------------------
+@router.get(
+    "/timetable/{timetable_id}",
+    summary="按课表查询评教记录",
+    response_model=BaseResponse,
+)
 async def fetch_evaluations_by_timetable(
     timetable_id: int,
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("college_admin", "school_admin"),
+            perms_all=("evaluation:read:received",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
-    """
-    获取指定课表的所有评教记录
-
-    - 需要登录认证
-    """
-    from app.models import User, Timetable
-
-    timetable = await get_timetable_by_id(db, timetable_id)
-    if not timetable:
+    tt = await evaluation_crud.get_timetable(db, timetable_id=timetable_id)
+    if not tt:
         raise HTTPException(status_code=404, detail="课表不存在")
 
-    evaluations = await get_timetable_eval_list(db, timetable_id)
+    evaluations = await evaluation_crud.list_by_timetable(db, timetable_id=timetable_id)
 
-    teach_result = await db.execute(
-        select(User).where(User.id == timetable.teacher_id)
-    )
-    teach_teacher = teach_result.scalar_one_or_none()
-
-    evaluation_list = []
-    for eval_item in evaluations:
-        listen_teacher = None
-        if not eval_item.is_anonymous:
-            listen_result = await db.execute(
-                select(User).where(User.id == eval_item.listen_teacher_id)
-            )
-            listen_teacher = listen_result.scalar_one_or_none()
-
-        evaluation_list.append({
-            "id": eval_item.id,
-            "evaluation_no": eval_item.evaluation_no,
-            "timetable_id": eval_item.timetable_id,
-            "course_name": timetable.course_name,
-            "course_type": timetable.course_type,
-            "class_name": timetable.class_name,
-            "teach_teacher_id": eval_item.teach_teacher_id,
-            "teach_teacher_name": teach_teacher.user_name if teach_teacher else None,
-            "total_score": eval_item.total_score,
-            "dimension_scores": eval_item.dimension_scores,
-            "score_level": eval_item.score_level,
-            "advantage_content": eval_item.advantage_content,
-            "problem_content": eval_item.problem_content,
-            "improve_suggestion": eval_item.improve_suggestion,
-            "listen_date": eval_item.listen_date.isoformat() if eval_item.listen_date else None,
-            "listen_duration": eval_item.listen_duration,
-            "listen_location": eval_item.listen_location,
-            "is_anonymous": eval_item.is_anonymous,
-            "status": eval_item.status,
-            "submit_time": eval_item.submit_time.isoformat() if eval_item.submit_time else None,
-            "listen_teacher_id": eval_item.listen_teacher_id if not eval_item.is_anonymous else None,
-            "listen_teacher_name": listen_teacher.user_name if listen_teacher and not eval_item.is_anonymous else None
-        })
+    result_list = []
+    for ev in evaluations:
+        listen_teacher = getattr(ev, "listen_teacher", None) if (not ev.is_anonymous) else None
+        result_list.append(
+            {
+                "id": ev.id,
+                "evaluation_no": ev.evaluation_no,
+                "total_score": ev.total_score,
+                "score_level": ev.score_level,
+                "dimension_scores": ev.dimension_scores,
+                "advantage_content": ev.advantage_content,
+                "problem_content": ev.problem_content,
+                "improve_suggestion": ev.improve_suggestion,
+                "listen_date": _iso(ev.listen_date),
+                "submit_time": _iso(ev.submit_time),
+                "is_anonymous": ev.is_anonymous,
+                "listen_teacher_id": ev.listen_teacher_id if not ev.is_anonymous else None,
+                "listen_teacher_name": getattr(listen_teacher, "user_name", None) if listen_teacher else None,
+                "status": ev.status,
+            }
+        )
 
     return BaseResponse(
         code=200,
         msg="success",
         data={
-            "timetable": {
-                "id": timetable.id,
-                "course_name": timetable.course_name,
-                "course_type": timetable.course_type,
-                "class_name": timetable.class_name,
-                "teach_time": timetable.teach_time,
-                "teach_place": timetable.teach_place,
-                "teacher_id": timetable.teacher_id,
-                "teacher_name": teach_teacher.user_name if teach_teacher else None
-            },
-            "list": evaluation_list,
-            "total": len(evaluation_list)
-        }
+            "timetable": _timetable_brief(tt),
+            "list": result_list,
+            "total": len(result_list),
+        },
     )
 
 
-@router.put("/{evaluation_id}/review", response_model=BaseResponse, summary="审核评教记录")
+# -----------------------------
+# 7) 评价维度配置
+# -----------------------------
+@router.get(
+    "/dimensions",
+    summary="获取评价维度配置",
+    response_model=BaseResponse,
+)
+async def get_evaluation_dimensions(
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("teacher", "college_admin", "school_admin"),
+            perms_all=("evaluation:dimension:read",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    dims = await evaluation_crud.get_dimensions(db)
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data=[
+            {
+                "id": d.id,
+                "dimension_code": d.dimension_code,
+                "dimension_name": d.dimension_name,
+                "max_score": d.max_score,
+                "weight": float(d.weight) if d.weight else 1.0,
+                "sort_order": d.sort_order,
+                "description": d.description,
+                "scoring_criteria": d.scoring_criteria,
+                "is_required": d.is_required,
+                "status": d.status,
+            }
+            for d in dims
+        ],
+    )
+
+
+# -----------------------------
+# 8) 教师统计：我自己的（新增，最清晰）
+# -----------------------------
+@router.get(
+    "/statistics/teacher/me",
+    summary="获取我的评教统计（新增）",
+    response_model=BaseResponse,
+)
+async def fetch_my_teacher_statistics(
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(roles_any=("teacher",), perms_all=("evaluation:stats:teacher",))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        stat = await evaluation_crud.teacher_statistics(
+            db,
+            teacher_id=current_user.id,
+            academic_year=academic_year,
+            semester=semester,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return BaseResponse(code=200, msg="success", data=stat)
+
+
+# -----------------------------
+# 9) 教师统计：指定教师（管理员用）
+# -----------------------------
+@router.get(
+    "/statistics/teacher/{teacher_id}",
+    summary="获取指定教师评教统计（管理员）",
+    response_model=BaseResponse,
+)
+async def fetch_teacher_statistics_admin(
+    teacher_id: int,
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("college_admin", "school_admin"),
+            perms_all=("evaluation:stats:teacher",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        stat = await evaluation_crud.teacher_statistics(
+            db,
+            teacher_id=teacher_id,
+            academic_year=academic_year,
+            semester=semester,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return BaseResponse(code=200, msg="success", data=stat)
+
+
+# -----------------------------
+# 10) 审核评教（统一入口）
+# -----------------------------
+@router.put(
+    "/{evaluation_id}/review",
+    summary="审核评教记录（统一入口）",
+    response_model=BaseResponse,
+)
 async def review_evaluation(
     evaluation_id: int,
     review_data: EvaluationReviewRequest,
-    current_user: TokenData = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("college_admin", "school_admin"),
+            perms_all=("evaluation:review",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
-    """
-    审核评教记录（设置状态）
+    try:
+        ev = await evaluation_crud.update_status(
+            db,
+            evaluation_id=evaluation_id,
+            status=review_data.status,
+            review_comment=getattr(review_data, "review_comment", None),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"审核失败: {e}")
 
-    - 需要登录认证（管理员）
-    - status: 0-作废 1-有效 2-待审核
-    """
-    evaluation = await update_evaluation_status_crud(
-        db, evaluation_id, review_data.status, review_data.review_comment
-    )
-
-    if not evaluation:
+    if not ev:
         raise HTTPException(status_code=404, detail="评教记录不存在")
 
     return BaseResponse(
         code=200,
         msg="success",
         data={
-            "id": evaluation.id,
-            "status": evaluation.status,
-            "review_comment": evaluation.review_comment
-        }
+            "id": ev.id,
+            "status": ev.status,
+            "review_comment": getattr(ev, "review_comment", None),
+        },
     )
+
+
+# -----------------------------
+# 11) 学院/全校统计（如果你还没迁移，先保留旧函数实现）
+# -----------------------------
+@router.get(
+    "/statistics/college/{college_id}",
+    summary="获取学院评教统计（待接入实现）",
+    response_model=BaseResponse,
+)
+async def fetch_college_statistics(
+    college_id: int,
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("college_admin", "school_admin"),
+            perms_all=("evaluation:stats:college",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    # 你可以：
+    # 1) 继续用旧函数：stat = await get_college_statistics(db, college_id, academic_year, semester)
+    # 2) 或者把逻辑迁移进 evaluation_crud 后在这里调用
+    raise HTTPException(status_code=501, detail="未实现：请将学院统计迁移到 CRUD 后启用该接口")
+
+
+@router.get(
+    "/statistics/school",
+    summary="获取全校评教统计（待接入实现）",
+    response_model=BaseResponse,
+)
+async def fetch_school_statistics(
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("school_admin",),
+            perms_all=("evaluation:stats:school",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    # 同上：你可以先接旧函数，或迁移到 evaluation_crud
+    raise HTTPException(status_code=501, detail="未实现：请将全校统计迁移到 CRUD 后启用该接口")

@@ -21,6 +21,11 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode('utf-8')
 
 
+def get_password_hash(password: str) -> str:
+    """生成密码哈希，与项目中的hash_password保持一致"""
+    return hash_password(password)
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     password_bytes = plain_password.encode('utf-8')[:72]
     hashed_bytes = hashed_password.encode('utf-8')

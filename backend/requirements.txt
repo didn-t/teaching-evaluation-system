@@ -10,3 +10,5 @@ alembic~=1.11.1
 bcrypt~=5.0.0
 asyncmy~=0.2.10
 starlette
+beautifulsoup4
+requests

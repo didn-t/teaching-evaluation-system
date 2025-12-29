@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 import json
 import re
 
+"""
 # spider = JWXTSpider()
 # spider.crawl(
 #     current_semester="",
@@ -14,6 +15,7 @@ import re
 #     API_KEY="",
 #     SECRET_KEY=""
 # )
+"""
 class JWXTSpider:
 
     def __init__(self):
@@ -41,7 +43,114 @@ class JWXTSpider:
             "0910": "第五大节",
             "1112": "第六大节"
         }
+        self.college_map = {
+            "商学院": [
+                "工商", "电商", "旅游", "国贸", "财管", "会计",
+                "金融科技", "跨境电商", "数字经济"
+            ],
+            "土木与工程学院": [
+                "造价", "地信", "建筑", "土木（工民建）",
+                "土木（交通土建）", "土木（岩土工程）",
+                "智造", "遥感"
+            ],
+            "艺术与传媒学院": [
+                "广告", "视传", "环境", "艺术", "编导",
+                "播音", "数媒", "表演", "摄影", "艺术与科技"
+            ],
+            "信息工程学院": [
+                "计算机", "电信", "通信", "网络", "电气"
+            ],
+            "文理学院": [
+                "英语", "商英", "体育", "汉语言",
+                "学前", "心理学", "体教"
+            ],
+            "马克思主义学院": [
+                "马克思主义"
+            ],
+            "大数据与人工智能学院": [
+                "网媒", "人工智能", "大数据技术", "机器人工程"
+            ]
+        }
+        # -------------------- 专业简称 → 专业全称 --------------------
+        self.major_map = {
+            "工商": "工商管理",
+            "电商": "电子商务",
+            "旅游": "旅游管理",
+            "国贸": "国家经济与贸易",
+            "金融科技": "金融科技",
+            "跨境电商": "跨境电子商务",
+            "数字经济": "数字经济",
 
+            "造价": "工程造价",
+            "地信": "地理信息科学",
+            "土木（工民建）": "土木工程（工民建）",
+            "土木（交通土建）": "土木工程（交通土建）",
+            "土木（岩土工程）": "土木工程（岩土工程）",
+            "智造": "智能建造",
+            "遥感": "遥感科学与技术",
+
+            "广告": "广告学",
+            "视传": "视觉传达设计",
+            "环境": "环境设计",
+            "艺术": "艺术设计学",
+            "编导": "广播电视编导",
+            "播音": "播音与主持艺术",
+            "数媒": "数字媒体艺术",
+            "摄影": "摄影",
+            "艺术与科技": "艺术与科技",
+
+            "计算机": "计算机科学与技术",
+            "电信": "电子信息工程",
+            "通信": "通信工程",
+            "电气": "电气工程及其自动化",
+
+            "英语": "英语",
+            "商英": "商务英语",
+            "体育": "社会体育指导与管理",
+            "汉语言": "汉语言文学",
+            "学前": "学前教育",
+            "心理学": "应用心理学",
+            "体教": "体育教育",
+
+            "网媒": "网络与新媒体",
+            "人工智能": "人工智能",
+            "大数据技术": "数据科学与大数据技术",
+            "机器人工程": "机器人工程"
+        }
+
+    def identify_grade(self, text):
+        """
+        """
+        # 1️⃣ 先找完整 4 位年级
+        match_4 = re.search(r"(20\d{2})", text)
+        if match_4:
+            return match_4.group(1)
+
+        # 2️⃣ 再从开头取前 2 位作为年级
+        match_2 = re.match(r"(\d{2})", text)
+        if match_2:
+            return "20" + match_2.group(1)
+
+        return "未知年级"
+
+    def identify_major(self, text):
+        """
+        从班级名中识别专业并转换为专业全称
+        """
+        for short, full in self.major_map.items():
+            if short in text:
+                return full
+        return "未知专业"
+
+    def identify_college(self, text):
+        """
+        根据 班级名 / 专业名 / 课程相关文本 识别学院
+        """
+        for college, majors in self.college_map.items():
+            for m in majors:
+                if m in text:
+                    return college
+        return "未知学院"
 
     def expand_weeks(self, week_str):
         weeks = []
@@ -249,6 +358,9 @@ class JWXTSpider:
                     course_info = self.parse_course_info(content)
                     data.append({
                         "班级": class_name,
+                        "学院": self.identify_college(class_name),
+                        "专业": self.identify_major(class_name),
+                        "年级": self.identify_grade(class_name),
                         "星期": days[i],
                         "节次": self.section_map.get(sections[i], sections[i]),
                         **course_info

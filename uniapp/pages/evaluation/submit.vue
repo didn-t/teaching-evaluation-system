@@ -136,14 +136,14 @@
 
 			<view class="form-item">
 				<text class="form-label">听课日期</text>
-				<input v-model="form.listen_date" type="date" class="input" placeholder-class="placeholder" />
+				<input :value="form.listen_date" type="date" class="input" placeholder-class="placeholder" @input="handleListenDateInput" />
 			</view>
 
 			<view class="form-row">
 				<view class="form-item half">
 					<text class="form-label">听课时长（分钟）</text>
 					<input
-						v-model="form.listen_duration"
+						:value="form.listen_duration"
 						type="number"
 						class="input"
 						placeholder="45"
@@ -155,7 +155,7 @@
 				<view class="form-item half">
 					<text class="form-label">是否匿名</text>
 					<view class="switch-container">
-						<switch :checked="form.is_anonymous" @change="onAnonymousChange" color="#3E5C76" />
+						<switch :checked="form.is_anonymous" color="#3E5C76" @change="handleAnonymousChange" />
 						<text class="switch-label">{{ form.is_anonymous ? '是' : '否' }}</text>
 					</view>
 				</view>
@@ -164,7 +164,7 @@
 			<view class="form-item">
 				<text class="form-label">听课地点</text>
 				<input
-					v-model="form.listen_location"
+					:value="form.listen_location"
 					type="text"
 					class="input"
 					placeholder="教学楼A101"
@@ -181,12 +181,13 @@
 			<view class="textarea-item">
 				<text class="textarea-label">优点</text>
 				<textarea
-					v-model="form.advantage_content"
+					:value="form.advantage_content"
 					placeholder="请输入课程优点"
 					class="textarea"
 					placeholder-class="placeholder"
 					:maxlength="200"
 					auto-height
+					@input="handleAdvantageContentInput"
 				/>
 				<text class="char-count">{{ form.advantage_content.length }}/200</text>
 			</view>
@@ -194,12 +195,13 @@
 			<view class="textarea-item">
 				<text class="textarea-label">问题</text>
 				<textarea
-					v-model="form.problem_content"
+					:value="form.problem_content"
 					placeholder="请输入课程存在的问题"
 					class="textarea"
 					placeholder-class="placeholder"
 					:maxlength="200"
 					auto-height
+					@input="handleProblemContentInput"
 				/>
 				<text class="char-count">{{ form.problem_content.length }}/200</text>
 			</view>
@@ -207,12 +209,13 @@
 			<view class="textarea-item">
 				<text class="textarea-label">改进建议</text>
 				<textarea
-					v-model="form.improve_suggestion"
+					:value="form.improve_suggestion"
 					placeholder="请输入改进建议"
 					class="textarea"
 					placeholder-class="placeholder"
 					:maxlength="200"
 					auto-height
+					@input="handleImproveSuggestionInput"
 				/>
 				<text class="char-count">{{ form.improve_suggestion.length }}/200</text>
 			</view>
@@ -226,7 +229,7 @@
 </template>
 
 <script>
-import { request } from '@/common/request.js';
+import { request } from '../../common/request.js';
 
 export default {
 	name: 'evaluation-submit',
@@ -361,20 +364,51 @@ export default {
 			);
 		},
 
+		// 兼容 web 和微信小程序的输入处理
+		handleListenDateInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.listen_date = value;
+		},
 		handleDurationChange(e) {
-			const value = parseInt(e.detail.value);
-			if (value > 480) {
+			// 兼容 web 和微信小程序
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			const numValue = parseInt(value);
+			if (numValue > 480) {
 				this.form.listen_duration = 480;
 				uni.showToast({ title: '听课时长不能超过480分钟', icon: 'none', duration: 1500 });
+			} else {
+				this.form.listen_duration = numValue || 0;
 			}
 		},
-
+		handleAnonymousChange(e) {
+			// 兼容 web 和微信小程序
+			const checked = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.checked : false);
+			this.form.is_anonymous = checked;
+		},
 		handleLocationChange(e) {
-			const value = e.detail.value;
+			// 兼容 web 和微信小程序
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
 			if (value.length > 64) {
 				this.form.listen_location = value.substring(0, 64);
 				uni.showToast({ title: '听课地点不能超过64个字符', icon: 'none', duration: 1500 });
+			} else {
+				this.form.listen_location = value;
 			}
+		},
+		handleAdvantageContentInput(e) {
+			// 兼容 web 和微信小程序
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.advantage_content = value;
+		},
+		handleProblemContentInput(e) {
+			// 兼容 web 和微信小程序
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.problem_content = value;
+		},
+		handleImproveSuggestionInput(e) {
+			// 兼容 web 和微信小程序
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.improve_suggestion = value;
 		},
 
 		onAnonymousChange(e) {

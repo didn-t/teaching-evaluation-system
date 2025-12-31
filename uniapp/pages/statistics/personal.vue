@@ -34,10 +34,11 @@
 					<text class="filter-label">学年</text>
 					<view class="filter-input">
 						<input 
-							v-model="filter.academic_year" 
+							:value="filter.academic_year" 
 							placeholder="如：2024-2025" 
 							class="input"
 							placeholder-class="placeholder"
+							@input="handleAcademicYearInput"
 						/>
 					</view>
 				</view>
@@ -46,6 +47,7 @@
 					<text class="filter-label">学期</text>
 					<view class="filter-select">
 						<picker 
+							:value="getSemesterIndex()" 
 							:range="semesterOptions" 
 							:range-key="'label'"
 							@change="handleSemesterChange"
@@ -105,7 +107,7 @@
 </template>
 
 <script>
-import { request } from '@/common/request.js';
+import { request } from '../../common/request.js';
 
 export default {
 	name: 'personal-statistics',
@@ -139,6 +141,15 @@ export default {
 		this.getStatistics();
 	},
 	methods: {
+		// 兼容 web 和微信小程序的输入处理
+		handleAcademicYearInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.filter.academic_year = value;
+		},
+		getSemesterIndex() {
+			const index = this.semesterOptions.findIndex(opt => opt.value === this.filter.semester);
+			return index >= 0 ? index : 0;
+		},
 		// 获取个人统计数据
 		async getStatistics() {
 			this.loading = true;
@@ -170,8 +181,12 @@ export default {
 		
 		// 处理学期选择变化
 		handleSemesterChange(e) {
-			const selectedIndex = e.detail.value;
-			this.filter.semester = this.semesterOptions[selectedIndex].value;
+			// 兼容 web 和微信小程序
+			const index = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e ? e : 0);
+			if (this.semesterOptions && this.semesterOptions[index]) {
+				this.filter.semester = this.semesterOptions[index].value;
+			}
+			this.filter.semester = this.semesterOptions[e.detail.value].value;
 		},
 		
 		// 获取选中的学期标签

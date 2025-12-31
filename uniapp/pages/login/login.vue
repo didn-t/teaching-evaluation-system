@@ -12,11 +12,12 @@
 			<view class="form-item">
 				<text class="label">用户名</text>
 				<input 
-					v-model="form.user_on" 
+					:value="form.user_on" 
 					type="text" 
 					placeholder="请输入用户名" 
 					class="input"
 					placeholder-class="placeholder"
+					@input="handleUserOnInput"
 				/>
 			</view>
 			
@@ -24,11 +25,12 @@
 				<text class="label">密码</text>
 				<view class="password-input">
 					<input 
-						v-model="form.password" 
+						:value="form.password" 
 						:type="showPassword ? 'text' : 'password'" 
 						placeholder="请输入密码" 
 						class="input"
 						placeholder-class="placeholder"
+						@input="handlePasswordInput"
 					/>
 					<text class="toggle-password" @tap="togglePassword">
 						{{ showPassword ? '隐藏' : '显示' }}
@@ -54,7 +56,7 @@
 </template>
 
 <script>
-import { request } from '@/common/request.js';
+import { request } from '../../common/request.js';
 
 export default {
 	name: 'login',
@@ -69,6 +71,15 @@ export default {
 		};
 	},
 	methods: {
+		// 兼容 web 和微信小程序的输入处理
+		handleUserOnInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.user_on = value;
+		},
+		handlePasswordInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.password = value;
+		},
 		// 切换密码显示状态
 		togglePassword() {
 			this.showPassword = !this.showPassword;

@@ -5,10 +5,11 @@
 			<view class="search-input">
 				<text class="search-icon">🔍</text>
 				<input 
-					v-model="searchKeyword" 
+					:value="searchKeyword" 
 					placeholder="搜索教师ID" 
 					class="input"
 					placeholder-class="placeholder"
+					@input="handleSearchKeywordInput"
 				/>
 			</view>
 			<button @tap="handleSearch" class="search-btn">
@@ -128,7 +129,7 @@
 </template>
 
 <script>
-import { request } from '@/common/request.js';
+import { request } from '../../common/request.js';
 
 export default {
 	data() {
@@ -180,6 +181,11 @@ export default {
 		this.getTimetable();
 	},
 	methods: {
+		// 兼容 web 和微信小程序的输入处理
+		handleSearchKeywordInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.searchKeyword = value;
+		},
 		// 获取课表数据
 		async getTimetable() {
 			try {

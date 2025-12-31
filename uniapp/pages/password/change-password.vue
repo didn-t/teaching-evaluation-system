@@ -5,11 +5,12 @@
 				<text class="label">旧密码</text>
 				<view class="password-input">
 					<input 
-						v-model="form.oldPassword" 
+						:value="form.oldPassword" 
 						:type="showOldPassword ? 'text' : 'password'" 
 						placeholder="请输入旧密码" 
 						class="input"
 						placeholder-class="placeholder"
+						@input="handleOldPasswordInput"
 					/>
 					<text class="toggle-password" @tap="toggleOldPassword">
 						{{ showOldPassword ? '隐藏' : '显示' }}
@@ -21,11 +22,12 @@
 				<text class="label">新密码</text>
 				<view class="password-input">
 					<input 
-						v-model="form.newPassword" 
+						:value="form.newPassword" 
 						:type="showNewPassword ? 'text' : 'password'" 
 						placeholder="请输入新密码（6-20位）" 
 						class="input"
 						placeholder-class="placeholder"
+						@input="handleNewPasswordInput"
 					/>
 					<text class="toggle-password" @tap="toggleNewPassword">
 						{{ showNewPassword ? '隐藏' : '显示' }}
@@ -37,11 +39,12 @@
 				<text class="label">确认新密码</text>
 				<view class="password-input">
 					<input 
-						v-model="form.confirmPassword" 
+						:value="form.confirmPassword" 
 						:type="showConfirmPassword ? 'text' : 'password'" 
 						placeholder="请再次输入新密码" 
 						class="input"
 						placeholder-class="placeholder"
+						@input="handleConfirmPasswordInput"
 					/>
 					<text class="toggle-password" @tap="toggleConfirmPassword">
 						{{ showConfirmPassword ? '隐藏' : '显示' }}
@@ -62,7 +65,7 @@
 </template>
 
 <script>
-import { request } from '@/common/request.js';
+import { request } from '../../common/request.js';
 
 export default {
 	name: 'change-password',
@@ -80,6 +83,19 @@ export default {
 		};
 	},
 	methods: {
+		// 兼容 web 和微信小程序的输入处理
+		handleOldPasswordInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.oldPassword = value;
+		},
+		handleNewPasswordInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.newPassword = value;
+		},
+		handleConfirmPasswordInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.confirmPassword = value;
+		},
 		// 切换旧密码显示状态
 		toggleOldPassword() {
 			this.showOldPassword = !this.showOldPassword;

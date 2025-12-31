@@ -76,8 +76,9 @@
 						<input 
 							type="text" 
 							class="form-input" 
-							v-model="editForm.user_name" 
+							:value="editForm.user_name" 
 							placeholder="请输入姓名" 
+							@input="handleUserNameInput"
 						/>
 					</view>
 					
@@ -86,8 +87,9 @@
 						<input 
 							type="text" 
 							class="form-input" 
-							v-model="editForm.user_on" 
+							:value="editForm.user_on" 
 							placeholder="请输入用户名" 
+							@input="handleUserOnInput"
 						/>
 					</view>
 				</view>
@@ -102,7 +104,7 @@
 </template>
 
 <script>
-import { request } from '@/common/request.js';
+import { request } from '../../common/request.js';
 
 export default {
 	data() {
@@ -123,6 +125,15 @@ export default {
 		this.getUserInfo();
 	},
 	methods: {
+		// 兼容 web 和微信小程序的输入处理
+		handleUserNameInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.editForm.user_name = value;
+		},
+		handleUserOnInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.editForm.user_on = value;
+		},
 		// 获取用户信息
 		async getUserInfo() {
 			try {

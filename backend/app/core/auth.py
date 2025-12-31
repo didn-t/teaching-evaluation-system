@@ -65,9 +65,7 @@ def verify_token(request: Request) -> Optional[TokenData]:
     if not token:
         # 如果Cookie中没有token，尝试从Authorization头部获取
         authorization = request.headers.get("Authorization")
-        print("front", authorization)
         if authorization and authorization.startswith("Bearer "):
-            print(authorization)
             token = authorization[7:]
 
     if not token:

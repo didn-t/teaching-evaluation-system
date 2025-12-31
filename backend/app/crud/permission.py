@@ -4,22 +4,23 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.crud.base import CRUDBase
+from app.crud.base_async import CRUDBaseAsync
 from app.models import Permission  # 按你的实际路径改
 
 
-class CRUDPermission(CRUDBase[Permission]):
-    def get_by_code(self, db: Session, *, permission_code: str, include_deleted: bool = False) -> Optional[Permission]:
+class CRUDPermission(CRUDBaseAsync[Permission]):
+    async def get_by_code(self, db: AsyncSession, *, permission_code: str, include_deleted: bool = False) -> Optional[Permission]:
         stmt = select(Permission).where(Permission.permission_code == permission_code)
         if not include_deleted:
             stmt = stmt.where(Permission.is_delete == False)  # noqa: E712
-        return db.execute(stmt).scalars().first()
+        result = await db.execute(stmt)
+        return result.scalars().first()
 
-    def list_tree(self, db: Session, include_deleted: bool = False) -> List[Dict]:
+    async def list_tree(self, db: AsyncSession, include_deleted: bool = False) -> List[Dict]:
         # 取全量后内存组树（权限一般不大；如果很大再改递归/CTE）
-        perms = self.get_multi(
+        perms, _ = await self.get_multi(
             db,
             skip=0,
             limit=10_000,

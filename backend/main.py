@@ -48,9 +48,15 @@ async def read_root():
 # 导入路由
 from app.api.v1.teaching_eval import user as teaching_eval_user
 from app.api.v1.teaching_eval import eval as teaching_eval_api
+from app.api.v1.teaching_eval import org as teaching_eval_org
+from app.api.v1.teaching_eval import auth as teaching_eval_auth
+from app.api.v1.teaching_eval import config as teaching_eval_config
 
-app.include_router(teaching_eval_user.router, prefix="/api/v1/teaching-eval/user", tags=["用户认证"])
-app.include_router(teaching_eval_api.router, prefix="/api/v1/teaching-eval/eval", tags=["教学评价"])
+app.include_router(teaching_eval_user.router, prefix="/api/v1/teaching-eval/user")
+app.include_router(teaching_eval_api.router, prefix="/api/v1/teaching-eval/eval")
+app.include_router(teaching_eval_org.router, prefix="/api/v1/teaching-eval/org")
+app.include_router(teaching_eval_auth.router, prefix="/api/v1/teaching-eval/auth")
+app.include_router(teaching_eval_config.router, prefix="/api/v1/teaching-eval")
 
 
 # 健康检查接口

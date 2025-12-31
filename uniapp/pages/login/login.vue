@@ -1,275 +1,256 @@
 <template>
 	<view class="login-container">
-		<view class="login-card">
-			<view class="login-header">
-				<text class="title">评教系统</text>
-				<text class="subtitle">教学质量评价系统</text>
+		<!-- Logo区域 -->
+		<view class="logo-section">
+			<image src="/static/logo.png" class="logo" mode="aspectFit"></image>
+			<text class="title">南宁理工学院</text>
+			<text class="subtitle">听课评教系统</text>
+		</view>
+		
+		<!-- 登录表单 -->
+		<view class="form-section">
+			<view class="form-item">
+				<text class="label">用户名</text>
+				<input 
+					v-model="form.user_on" 
+					type="text" 
+					placeholder="请输入用户名" 
+					class="input"
+					placeholder-class="placeholder"
+				/>
 			</view>
-			<view class="login-form">
-				<view class="field">
-					<text class="label">用户名</text>
-					<input v-model="username" type="text" placeholder="请输入用户名" class="input" @input="onUsernameInput" @confirm="handleLogin" />
+			
+			<view class="form-item">
+				<text class="label">密码</text>
+				<view class="password-input">
+					<input 
+						v-model="form.password" 
+						:type="showPassword ? 'text' : 'password'" 
+						placeholder="请输入密码" 
+						class="input"
+						placeholder-class="placeholder"
+					/>
+					<text class="toggle-password" @tap="togglePassword">
+						{{ showPassword ? '隐藏' : '显示' }}
+					</text>
 				</view>
-				<view class="field">
-					<text class="label">密码</text>
-					<input v-model="password" type="password" placeholder="请输入密码" class="input"
-						@input="onPasswordInput" @confirm="handleLogin" />
-				</view>
-				<view v-if="error" class="error-message">{{ error }}</view>
-				<button @tap="handleLogin" class="primary-btn" :loading="loading" :disabled="loading">登录</button>
-				<view class="login-tips">
-					<text class="tips-title">提示信息</text>
-					<text class="tip">• 教学质量评价系统</text>
-
-				</view>
+			</view>
+			
+			<button 
+				@tap="login" 
+				class="login-btn"
+				:loading="loading"
+				:disabled="loading"
+			>
+				登录
+			</button>
+			
+			<view class="register-link">
+				<text>还没有账号？</text>
+				<text class="link" @tap="goRegister">立即注册</text>
 			</view>
 		</view>
 	</view>
 </template>
 
 <script>
-	import {
-		simpleStore
-	} from '@/utils/simpleStore';
-	import {
-		baseUrl
-	} from '@/common/config.js'
-	import {
-		request
-	} from '@/common/request.js';
+import { request } from '@/common/request.js';
 
-	export default {
-		data() {
-			return {
-				username: '',
-				password: '',
-				error: '',
-				loading: false
-			};
+export default {
+	name: 'login',
+	data() {
+		return {
+			form: {
+				user_on: '',
+				password: ''
+			},
+			showPassword: false,
+			loading: false
+		};
+	},
+	methods: {
+		// 切换密码显示状态
+		togglePassword() {
+			this.showPassword = !this.showPassword;
 		},
-		methods: {
-			onUsernameInput(e) {
-				this.username = e.detail.value;
-			},
-			onPasswordInput(e) {
-				this.password = e.detail.value;
-			},
-			async handleLogin() {
-				this.error = '';
-				// 输入验证
-				if (!this.username.trim()) {
-					this.error = '请输入用户名';
+		
+		// 登录
+			async login() {
+				// 表单验证
+				if (!this.form.user_on || !this.form.password) {
+					uni.showToast({
+						title: '请输入用户名和密码',
+						icon: 'none',
+						duration: 2000
+					});
 					return;
 				}
-				if (!this.password) {
-					this.error = '请输入密码';
-					return;
-				}
-				// 禁止包含特殊字符的用户名
-				if (!/^[a-zA-Z0-9_\u4e00-\u9fa5]+$/.test(this.username.trim())) {
-					this.error = '用户名包含非法字符';
-					return;
-				}
-				this.loading = true;
-				this.error = '';
-				
-				console.log('开始登录请求');
-				try {
+			
+			this.loading = true;
+			
+			try {
+				// 调用登录接口
 					const res = await request({
 						url: '/user/login',
 						method: 'POST',
-						data: {
-							user_on: this.username,
-							password: this.password
-						}
+						data: this.form
 					});
-					console.log('登录响应:', res)
-					// 登录请求成功，直接进入角色获取流程
-					if (res) {
-						uni.showToast({
-							title: "登录成功",
-							icon: 'success'
-						});
-
-						try {
-							console.log('开始获取用户角色');
-							const user = await request({
-								url: '/user/role',
-								method: 'GET'
-							})
-							console.log('用户角色响应:', user)
-							if (!user || !user.role_code) {
-								this.error = '用户信息获取失败';
-								this.loading = false;
-								return;
-							}
-							const role_list = user.role_code
-							// 根据用户角色直接跳转到相应页面（不进行任何网络检测）
-							if (role_list.includes('teacher')) {
-								uni.switchTab({
-									url: '/pages/teacher/index'
-								});
-							} else if (role_list.includes('supervisor')) {
-								// 督导老师直接跳转到督导端首页，不进行服务器连接检测
-								uni.redirectTo({
-									url: '/pages/supervisor/index'
-								});
-							} else if (role_list.includes('college_admin')) {
-								uni.redirectTo({
-									url: '/pages/college/index'
-								});
-							} else if (role_list.includes('school_admin') || role_list.includes('admin')) {
-								uni.redirectTo({
-									url: '/pages/school/index'
-								});
-							} else {
-								uni.switchTab({
-									url: '/pages/teacher/index'
-								});
-							}
-						} catch (err) {
-							console.error('获取用户角色失败:', err);
-							this.error = '用户信息获取失败';
-							this.loading = false;
-							return;
-						}
-					}
-				} catch (err) {
-					console.error('登录失败:', err);
-					// 显示具体的错误信息
-					const errorMsg = err.msg || err.message || '登录失败';
-					uni.showToast({
-						title: errorMsg,
-						icon: 'none'
-					});
-					this.loading = false;
-					return;
-				}
 				
+				// 保存用户信息（token已在request.js中自动保存）
+				uni.setStorageSync('userInfo', res.user || {});
+				
+				uni.showToast({
+					title: '登录成功',
+					icon: 'success',
+					duration: 1500
+				});
+				
+				// 跳转到首页
+				setTimeout(() => {
+					uni.switchTab({
+						url: '/pages/index/index'
+					});
+				}, 1500);
+			} catch (error) {
+				console.error('登录失败:', error);
+				uni.showToast({
+					title: error.msg || '登录失败，请重试',
+					icon: 'none',
+					duration: 2000
+				});
+			} finally {
 				this.loading = false;
 			}
+		},
+		
+		// 跳转到注册页面
+		goRegister() {
+			uni.navigateTo({
+				url: '/pages/register/register'
+			});
 		}
-	};
+	}
+};
 </script>
 
 <style scoped>
-	.login-container {
-		display: flex;
-		justify-content: center;
-		align-items: center;
-		min-height: 100vh;
-		padding: 20px;
-		background-color: #f5f5f5;
-	}
+.login-container {
+	padding: 40rpx 30rpx;
+	background-color: #F5F7FA;
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+}
 
-	.login-card {
-		background: #fff;
-		border-radius: 16px;
-		padding: 40px;
-		box-shadow: 0 16px 40px rgba(31, 41, 51, 0.1);
-		width: 100%;
-		max-width: 400px;
-	}
+.logo-section {
+	align-items: center;
+	margin-bottom: 60rpx;
+}
 
-	.login-header {
-		text-align: center;
-		margin-bottom: 32px;
-	}
+.logo {
+	width: 160rpx;
+	height: 160rpx;
+	margin-bottom: 20rpx;
+}
 
-	.title {
-		font-size: 28px;
-		color: #4f46e5;
-		display: block;
-		margin-bottom: 8px;
-	}
+.title {
+	font-size: 36rpx;
+	font-weight: bold;
+	color: #333333;
+	margin-bottom: 10rpx;
+}
 
-	.subtitle {
-		color: #1f2933;
-		font-size: 14px;
-		display: block;
-	}
+.subtitle {
+	font-size: 28rpx;
+	color: #666666;
+}
 
-	.login-form {
-		margin-bottom: 24px;
-	}
+.form-section {
+	background-color: #FFFFFF;
+	border-radius: 16rpx;
+	padding: 40rpx;
+	box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.08);
+}
 
-	.field {
-		margin-bottom: 16px;
-	}
+.form-item {
+	margin-bottom: 30rpx;
+}
 
-	.label {
-		display: block;
-		margin-bottom: 8px;
-		font-weight: 500;
-		color: #333;
-	}
+.label {
+	display: block;
+	font-size: 28rpx;
+	color: #333333;
+	margin-bottom: 12rpx;
+	font-weight: 500;
+}
 
-	.input {
-		width: 100%;
-		padding: 12px;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		box-sizing: border-box;
-		height: auto;
-		/* 确保高度自适应 */
-	}
+.input {
+	width: 100%;
+	height: 80rpx;
+	border: 2rpx solid #E4E7ED;
+	border-radius: 8rpx;
+	padding: 0 20rpx;
+	font-size: 28rpx;
+	color: #333333;
+	background-color: #F5F7FA;
+}
 
-	.toast {
-		padding: 10px;
-		border-radius: 4px;
-		text-align: center;
-		margin-top: 12px;
-	}
-	
-	.error {
-		background-color: #fee;
-		color: #e53e3e;
-		border: 1px solid #fed7d7;
-	}
-	
-	.error-message {
-		padding: 10px;
-		border-radius: 4px;
-		text-align: center;
-		margin-top: 12px;
-		background-color: #fee;
-		color: #e53e3e;
-		border: 1px solid #fed7d7;
-	}
+.input:focus {
+	border-color: #3E5C76;
+	background-color: #FFFFFF;
+}
 
-	.primary-btn {
-		width: 100%;
-		margin-top: 16px;
-		background-color: #4f46e5;
-		color: white;
-		border: none;
-		padding: 12px;
-		border-radius: 4px;
-		font-size: 16px;
-		height: auto;
-		/* 确保高度自适应 */
-	}
+.placeholder {
+	color: #C0C4CC;
+}
 
-	.primary-btn::after {
-		border: none;
-	}
+.password-input {
+	display: flex;
+	align-items: center;
+}
 
-	.login-tips {
-		margin-top: 24px;
-		padding-top: 24px;
-		border-top: 1px solid #c7d2fe;
-		font-size: 12px;
-		color: #1f2933;
-	}
+.password-input .input {
+	flex: 1;
+	margin-right: 20rpx;
+}
 
-	.tips-title {
-		display: block;
-		font-weight: bold;
-		margin-bottom: 8px;
-	}
+.toggle-password {
+	font-size: 24rpx;
+	color: #3E5C76;
+	padding: 10rpx;
+}
 
-	.tip {
-		display: block;
-		margin: 4px 0;
-	}
+.login-btn {
+	width: 100%;
+	height: 88rpx;
+	background-color: #3E5C76;
+	color: #FFFFFF;
+	font-size: 32rpx;
+	font-weight: bold;
+	border-radius: 44rpx;
+	margin-top: 40rpx;
+	margin-bottom: 30rpx;
+}
+
+.login-btn::after {
+	border: none;
+}
+
+.login-btn:active {
+	background-color: #2D455A;
+}
+
+.register-link {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	font-size: 26rpx;
+	color: #666666;
+}
+
+.link {
+	color: #3E5C76;
+	margin-left: 10rpx;
+	font-weight: 500;
+}
 </style>

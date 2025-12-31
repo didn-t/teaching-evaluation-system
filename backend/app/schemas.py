@@ -60,21 +60,183 @@ class TokenData(BaseModel):
 
 
 # 学院相关模型
-class CollegeBase(BaseModel):
-    college_code: str
-    college_name: str
-
-
-class CollegeCreate(CollegeBase):
-    pass
+class CollegeCreate(BaseModel):
+    college_code: str = Field(..., max_length=32)
+    college_name: str = Field(..., max_length=64)
+    short_name: Optional[str] = Field(None, max_length=16)
+    sort_order: int = 0
 
 
 class CollegeUpdate(BaseModel):
-    college_name: Optional[str] = None
+    college_name: Optional[str] = Field(None, max_length=64)
+    short_name: Optional[str] = Field(None, max_length=16)
+    sort_order: Optional[int] = None
+    is_delete: Optional[bool] = None
 
 
-class CollegeResponse(CollegeBase):
+# -------- ResearchRoom --------
+class ResearchRoomCreate(BaseModel):
+    college_id: int
+    room_name: str = Field(..., max_length=64)
+
+
+class ResearchRoomUpdate(BaseModel):
+    room_name: Optional[str] = Field(None, max_length=64)
+    is_delete: Optional[bool] = None
+
+
+# -------- Major --------
+class MajorCreate(BaseModel):
+    college_id: int
+    major_name: str = Field(..., max_length=64)
+    major_code: Optional[str] = Field(None, max_length=32)
+    short_name: Optional[str] = Field(None, max_length=32)
+
+
+class MajorUpdate(BaseModel):
+    major_name: Optional[str] = Field(None, max_length=64)
+    major_code: Optional[str] = Field(None, max_length=32)
+    short_name: Optional[str] = Field(None, max_length=32)
+    is_delete: Optional[bool] = None
+
+
+# -------- Clazz --------
+class ClazzCreate(BaseModel):
+    major_id: Optional[int] = None
+    class_name: str = Field(..., max_length=64)
+    class_code: Optional[str] = Field(None, max_length=32)
+    grade: Optional[str] = Field(None, max_length=16)
+
+
+class ClazzUpdate(BaseModel):
+    major_id: Optional[int] = None
+    class_name: Optional[str] = Field(None, max_length=64)
+    class_code: Optional[str] = Field(None, max_length=32)
+    grade: Optional[str] = Field(None, max_length=16)
+    is_delete: Optional[bool] = None
+
+
+# -------- Response Models --------
+class CollegeResponse(BaseModel):
     id: int
+    college_code: str
+    college_name: str
+    short_name: Optional[str] = None
+    sort_order: int
+    create_time: datetime
+    update_time: Optional[datetime] = None
+    is_delete: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+class ResearchRoomResponse(BaseModel):
+    id: int
+    college_id: int
+    room_name: str
+    create_time: datetime
+    update_time: Optional[datetime] = None
+    is_delete: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+class MajorResponse(BaseModel):
+    id: int
+    college_id: int
+    major_name: str
+    major_code: Optional[str] = None
+    short_name: Optional[str] = None
+    create_time: datetime
+    update_time: Optional[datetime] = None
+    is_delete: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+class ClazzResponse(BaseModel):
+    id: int
+    major_id: Optional[int] = None
+    class_name: str
+    class_code: Optional[str] = None
+    grade: Optional[str] = None
+    create_time: datetime
+    update_time: Optional[datetime] = None
+    is_delete: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+# -------- Timetable (新版本)--------
+class TimetableCreate(BaseModel):
+    college_id: Optional[int] = None
+    teacher_id: int
+    class_id: Optional[int] = None
+    class_name: str = Field(..., max_length=128)
+    course_code: Optional[str] = Field(None, max_length=32)
+    course_name: str = Field(..., max_length=128)
+    academic_year: str = Field(..., max_length=9)  # 2024-2025
+    semester: int = Field(..., ge=1, le=2)  # 1/2
+    weekday: int = Field(..., ge=1, le=7)
+    weekday_text: Optional[str] = Field(None, max_length=8)
+    period: str = Field(..., max_length=16)
+    section_time: str = Field(..., max_length=16)
+    week_info: str = Field(..., max_length=128)
+    classroom: str = Field("", max_length=128)
+    student_count: Optional[int] = None
+    credit: Optional[float] = None
+    course_type: Optional[str] = Field(None, max_length=32)
+
+
+class TimetableUpdate(BaseModel):
+    college_id: Optional[int] = None
+    teacher_id: Optional[int] = None
+    class_id: Optional[int] = None
+    class_name: Optional[str] = Field(None, max_length=128)
+    course_code: Optional[str] = Field(None, max_length=32)
+    course_name: Optional[str] = Field(None, max_length=128)
+    academic_year: Optional[str] = Field(None, max_length=9)
+    semester: Optional[int] = Field(None, ge=1, le=2)
+    weekday: Optional[int] = Field(None, ge=1, le=7)
+    weekday_text: Optional[str] = Field(None, max_length=8)
+    period: Optional[str] = Field(None, max_length=16)
+    section_time: Optional[str] = Field(None, max_length=16)
+    week_info: Optional[str] = Field(None, max_length=128)
+    classroom: Optional[str] = Field(None, max_length=128)
+    student_count: Optional[int] = None
+    credit: Optional[float] = None
+    course_type: Optional[str] = Field(None, max_length=32)
+    is_delete: Optional[bool] = None
+
+
+# 课表响应模型
+class TimetableResponse(BaseModel):
+    id: int
+    college_id: Optional[int] = None
+    teacher_id: int
+    class_id: Optional[int] = None
+    class_name: str
+    course_code: Optional[str] = None
+    course_name: str
+    academic_year: str  # 2024-2025
+    semester: int  # 1/2
+    weekday: int  # 1-7
+    weekday_text: Optional[str] = None
+    period: str
+    section_time: str
+    week_info: str
+    classroom: str
+    student_count: Optional[int] = None
+    credit: Optional[float] = None
+    course_type: Optional[str] = None
+    sync_source: int = 0
+    external_id: Optional[str] = None
+    sync_time: Optional[datetime] = None
+    sync_status: int = 1
     create_time: datetime
     update_time: Optional[datetime] = None
     is_delete: bool = False
@@ -157,44 +319,6 @@ class UserPermissionUpdate(BaseModel):
 class UserPermissionResponse(UserPermissionBase):
     id: int
     create_time: datetime
-    is_delete: bool = False
-
-    class Config:
-        from_attributes = True
-
-
-# 课表相关模型
-class TimetableBase(BaseModel):
-    timetable_no: str
-    college_id: int
-    teacher_id: int
-    course_name: str
-    course_type: str  # 课程类型（必修课/选修课/实训课）
-    class_name: str
-    teach_week: str  # 授课周次（如1-16周）
-    teach_time: str  # 授课时间（如周一第3-4节）
-    teach_place: str  # 授课地点
-    sync_time: datetime  # 最后同步时间
-
-
-class TimetableCreate(TimetableBase):
-    pass
-
-
-class TimetableUpdate(BaseModel):
-    course_name: Optional[str] = None
-    course_type: Optional[str] = None
-    class_name: Optional[str] = None
-    teach_week: Optional[str] = None
-    teach_time: Optional[str] = None
-    teach_place: Optional[str] = None
-    sync_time: Optional[datetime] = None
-
-
-class TimetableResponse(TimetableBase):
-    id: int
-    create_time: datetime
-    update_time: Optional[datetime] = None
     is_delete: bool = False
 
     class Config:
@@ -522,7 +646,8 @@ class ConfigResponse(ConfigBase):
     class Config:
         from_attributes = True
 
-#评教维度配置响应模型(用于返回评教维度的配置信息)
+
+# 评教维度配置响应模型(用于返回评教维度的配置信息)
 class EvaluationDimensionResponse(BaseModel):
     id: int
     dimension_code: str
@@ -538,12 +663,14 @@ class EvaluationDimensionResponse(BaseModel):
     class Config:
         from_attributes = True
 
-#评教审核请求模型(同于审核评教记录时提交请求：)
+
+# 评教审核请求模型(同于审核评教记录时提交请求：)
 class EvaluationReviewRequest(BaseModel):
     status: int = Field(..., ge=0, le=2, description='状态 0-作废 1-有效 2-待审核')
     review_comment: Optional[str] = Field(None, description='审核意见')
 
-#教师评教详情响应模型(用于返回单条评教记录的完整详情)
+
+# 教师评教详情响应模型(用于返回单条评教记录的完整详情)
 class TeacherEvaluationDetailResponse(BaseModel):
     id: int
     evaluation_no: str
@@ -571,7 +698,8 @@ class TeacherEvaluationDetailResponse(BaseModel):
     class Config:
         from_attributes = True
 
-#教师统计响应模型(用于返回教师的评教统计数据：)
+
+# 教师统计响应模型(用于返回教师的评教统计数据：)
 class TeacherStatisticsResponse(BaseModel):
     teacher_id: int
     teacher_name: str
@@ -593,7 +721,8 @@ class TeacherStatisticsResponse(BaseModel):
     class Config:
         from_attributes = True
 
-#学院统计响应模型(用于返回学院的评教统计数据)
+
+# 学院统计响应模型(用于返回学院的评教统计数据)
 class CollegeStatisticsResponse(BaseModel):
     college_id: int
     college_name: str
@@ -610,7 +739,8 @@ class CollegeStatisticsResponse(BaseModel):
     class Config:
         from_attributes = True
 
-#全校统计响应模型(用于返回全校范围的评教统计汇总)
+
+# 全校统计响应模型(用于返回全校范围的评教统计汇总)
 class SchoolStatisticsResponse(BaseModel):
     total_college_num: int
     total_teacher_num: int
@@ -624,7 +754,8 @@ class SchoolStatisticsResponse(BaseModel):
     class Config:
         from_attributes = True
 
-#评教列表查询模型(用于分页查询评教记录时的条件筛选)
+
+# 评教列表查询模型(用于分页查询评教记录时的条件筛选)
 class EvaluationListQuery(BaseModel):
     page: int = Field(1, ge=1, description='页码')
     page_size: int = Field(10, ge=1, le=100, description='每页数量')
@@ -634,3 +765,8 @@ class EvaluationListQuery(BaseModel):
     status: Optional[int] = Field(None, description='状态')
     start_date: Optional[datetime] = Field(None, description='开始日期')
     end_date: Optional[datetime] = Field(None, description='结束日期')
+
+
+# 课程类型更新请求模型
+class CourseTypeUpdate(BaseModel):
+    course_type: Optional[str] = Field(None, max_length=32, description='课程评价状态：空/待评/已评')

@@ -4,7 +4,8 @@ from starlette.responses import JSONResponse
 
 from app.core import DEBUG, ACCESS_TOKEN_EXPIRE_MINUTES
 from app.core.auth import verify_token
-
+from app.database import AsyncSessionLocal
+from app.crud.user import get_roles_code, get_user_permissions
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """
@@ -16,7 +17,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         public_paths = [
             "/",
             "/health",
-            "/health/db",
             "/api/v1/teaching-eval/user/login",
             "/api/v1/teaching-eval/user/register",
             
@@ -36,6 +36,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 try:
                     token_data = verify_token(request)
                     request.state.current_user = token_data
+                    
+                    # 获取数据库会话并获取用户角色和权限信息
+                    async with AsyncSessionLocal() as db:
+                        user_roles = await get_roles_code(db, token_data)
+                        user_permissions = await get_user_permissions(db, token_data)
+                        
+                        # 缓存用户角色和权限信息
+                        request.state.user_roles = user_roles
+                        request.state.user_permissions = user_permissions
+                        
                 except HTTPException as e:
                     # 检查是否是来自Authorization头部的token验证失败
                     authorization = request.headers.get("Authorization")

@@ -37,10 +37,14 @@ class TeachingEvaluationCRUD:
         return res.scalar_one_or_none()
 
     async def get_by_id(self, db: AsyncSession, *, evaluation_id: int) -> Optional[TeachingEvaluation]:
+        from sqlalchemy.orm import selectinload
         res = await db.execute(
             select(TeachingEvaluation).where(
                 TeachingEvaluation.id == evaluation_id,
-                TeachingEvaluation.is_delete == False,  # noqa: E712
+                TeachingEvaluation.is_delete == False,
+            ).options(
+                selectinload(TeachingEvaluation.teach_teacher),
+                selectinload(TeachingEvaluation.listen_teacher)
             )
         )
         return res.scalar_one_or_none()

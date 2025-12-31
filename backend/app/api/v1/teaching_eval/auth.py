@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, Sequence
 
 from app.database import get_db
 from app.schemas import (
@@ -15,7 +15,8 @@ from app.schemas import (
 from app.core.deps import get_current_user, require_access
 from app.crud.role import role_crud
 from app.crud.permission import permission_crud
-from app.models import Role, Permission
+from app.crud.user import user_crud
+from app.models import Role, Permission, User, UserRole
 
 router = APIRouter(prefix="/auth", tags=["角色权限管理"])
 
@@ -450,3 +451,77 @@ async def get_role_permissions(
         return BaseResponse(code=200, msg="success", data=permission_responses)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取角色权限失败: {e}")
+
+
+# -----------------------------
+# 哥用户分配角色接口
+# -----------------------------
+@router.post("/user/{user_id}/roles", summary="给用户分配角色")
+async def assign_roles_to_user(
+    user_id: int,
+    role_ids: List[int],
+    current_user: TokenData = Depends(
+        require_access(roles_any=("school_admin",), perms_all=("auth:user:assign_role",))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """给用户分配角色"""
+    try:
+        # 参数验证
+        if not role_ids:
+            raise HTTPException(status_code=400, detail="角色ID列表不能为空")
+        
+        if len(role_ids) != len(set(role_ids)):
+            raise HTTPException(status_code=400, detail="角色ID列表中存在重复项")
+        
+        # 获取用户
+        user = await user_crud.get(db, id=user_id)
+        if not user or user.is_delete:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        
+        # 获取要分配的角色
+        stmt = select(Role).where(Role.id.in_(role_ids), Role.is_delete == False)
+        result = await db.execute(stmt)
+        roles = list(result.scalars().all())
+        
+        # 检查是否所有角色都存在
+        if len(roles) != len(role_ids):
+            found_role_ids = {role.id for role in roles}
+            missing_role_ids = [rid for rid in role_ids if rid not in found_role_ids]
+            raise HTTPException(status_code=400, detail=f"以下角色不存在或已删除: {missing_role_ids}")
+        
+        # 分配角色给用户
+        await set_user_roles(db, user=user, roles=roles)
+        
+        return BaseResponse(code=200, msg="角色分配成功")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分配角色失败: {e}")
+
+
+# 辅助函数
+async def set_user_roles(db: AsyncSession, *, user: User, roles: Sequence[Role]) -> User:
+    """设置用户的角色"""
+    try:
+        # 先删除用户现有的所有角色关联
+        stmt = select(UserRole).where(UserRole.user_id == user.id)
+        result = await db.execute(stmt)
+        existing_user_roles = result.scalars().all()
+        
+        # 删除现有角色关联
+        for user_role in existing_user_roles:
+            await db.delete(user_role)
+        
+        # 添加新的角色关联
+        for role in roles:
+            user_role = UserRole(user_id=user.id, role_id=role.id)
+            db.add(user_role)
+        
+        # 一次性提交所有更改
+        await db.commit()
+        await db.refresh(user)
+        return user
+    except Exception as e:
+        await db.rollback()
+        raise e

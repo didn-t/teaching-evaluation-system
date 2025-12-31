@@ -19,7 +19,7 @@
 				</view>
 				<view class="filter-item">
 					<text class="filter-label">学期：</text>
-					<picker mode="selector" range="[1, 2]" v-model="filters.semester" @change="onSemesterChange">
+					<picker mode="selector" range="[1, 2]" @change="onSemesterChange">
 						<view class="picker">
 							{{ filters.semester || '请选择' }}
 						</view>
@@ -29,7 +29,7 @@
 			<view class="filter-row">
 				<view class="filter-item">
 					<text class="filter-label">评价状态：</text>
-					<picker mode="selector" range="['全部', '待评', '已评']" v-model="filters.course_type_index" @change="onCourseTypeChange">
+					<picker mode="selector" range="['全部', '待评', '已评']" @change="onCourseTypeChange">
 						<view class="picker">
 							{{ filters.course_type || '全部' }}
 						</view>
@@ -194,7 +194,8 @@ export default {
 		
 		// 学期选择器变化
 		onSemesterChange(e) {
-			this.filters.semester = e.detail.value + 1;
+			const selectedIndex = e.detail.value;
+			this.filters.semester = selectedIndex + 1;
 			this.currentPage = 1;
 			this.getCourses();
 		},
@@ -202,8 +203,9 @@ export default {
 		// 课程类型选择器变化
 		onCourseTypeChange(e) {
 			const types = ['全部', '待评', '已评'];
-			this.filters.course_type_index = e.detail.value;
-			this.filters.course_type = types[e.detail.value];
+			const selectedIndex = e.detail.value;
+			this.filters.course_type_index = selectedIndex;
+			this.filters.course_type = types[selectedIndex];
 			this.currentPage = 1;
 			this.getCourses();
 		},

@@ -46,7 +46,6 @@
 					<text class="filter-label">学期</text>
 					<view class="filter-select">
 						<picker 
-							v-model="filter.semester" 
 							:range="semesterOptions" 
 							:range-key="'label'"
 							@change="handleSemesterChange"
@@ -171,7 +170,8 @@ export default {
 		
 		// 处理学期选择变化
 		handleSemesterChange(e) {
-			this.filter.semester = this.semesterOptions[e.detail.value].value;
+			const selectedIndex = e.detail.value;
+			this.filter.semester = this.semesterOptions[selectedIndex].value;
 		},
 		
 		// 获取选中的学期标签

@@ -143,7 +143,7 @@
 				<view class="form-item half">
 					<text class="form-label">听课时长（分钟）</text>
 					<input
-						v-model.number="form.listen_duration"
+						v-model="form.listen_duration"
 						type="number"
 						class="input"
 						placeholder="45"
@@ -155,7 +155,7 @@
 				<view class="form-item half">
 					<text class="form-label">是否匿名</text>
 					<view class="switch-container">
-						<switch v-model="form.is_anonymous" color="#3E5C76" />
+						<switch :checked="form.is_anonymous" @change="onAnonymousChange" color="#3E5C76" />
 						<text class="switch-label">{{ form.is_anonymous ? '是' : '否' }}</text>
 					</view>
 				</view>
@@ -375,6 +375,10 @@ export default {
 				this.form.listen_location = value.substring(0, 64);
 				uni.showToast({ title: '听课地点不能超过64个字符', icon: 'none', duration: 1500 });
 			}
+		},
+
+		onAnonymousChange(e) {
+			this.form.is_anonymous = e.detail.value;
 		},
 
 		async submitEvaluation() {

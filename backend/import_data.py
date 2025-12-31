@@ -6,9 +6,9 @@ from sqlalchemy import select, insert, update, delete
 from app.database import DATABASE_URL
 from app.models import (
     College, ResearchRoom, Major, Clazz, User, TeacherProfile,
-    Timetable
+    Timetable, Role, UserRole
 )
-import bcrypt
+from app.core.auth import get_password_hash
 from datetime import datetime
 
 # 创建异步引擎和会话工厂
@@ -128,16 +128,36 @@ async def import_teachers():
                 
                 if not existing_user:
                     # 创建教师用户，包含学院id
-                    hashed_password = bcrypt.hashpw(b"123456", bcrypt.gensalt())
+                    hashed_password = get_password_hash("123456")
                     user = User(
                         user_on=employee_id,
                         user_name=teacher_name,
                         college_id=college_id,
-                        password=hashed_password.decode("utf-8"),
+                        password=hashed_password,
                         status=1
                     )
                     db.add(user)
                     await db.flush()
+                    
+                    # 分配teacher角色
+                    # 获取teacher角色
+                    stmt = select(Role).where(Role.role_code == "teacher")
+                    result = await db.execute(stmt)
+                    teacher_role = result.scalar_one_or_none()
+                    
+                    if teacher_role:
+                        # 检查用户是否已经有这个角色
+                        stmt = select(UserRole).where(
+                            UserRole.user_id == user.id,
+                            UserRole.role_id == teacher_role.id
+                        )
+                        result = await db.execute(stmt)
+                        existing_user_role = result.scalar_one_or_none()
+                        
+                        if not existing_user_role:
+                            # 分配角色
+                            user_role = UserRole(user_id=user.id, role_id=teacher_role.id)
+                            db.add(user_role)
                     
                     # 创建教师档案
                     for room_item in teacher_item['教研室']:
@@ -168,6 +188,26 @@ async def import_teachers():
                     if college_id and existing_user.college_id != college_id:
                         existing_user.college_id = college_id
                         print(f"更新教师 {teacher_name} 的学院id为 {college_id}")
+                    
+                    # 为已存在的用户也分配teacher角色
+                    # 获取teacher角色
+                    stmt = select(Role).where(Role.role_code == "teacher")
+                    result = await db.execute(stmt)
+                    teacher_role = result.scalar_one_or_none()
+                    
+                    if teacher_role:
+                        # 检查用户是否已经有这个角色
+                        stmt = select(UserRole).where(
+                            UserRole.user_id == existing_user.id,
+                            UserRole.role_id == teacher_role.id
+                        )
+                        result = await db.execute(stmt)
+                        existing_user_role = result.scalar_one_or_none()
+                        
+                        if not existing_user_role:
+                            # 分配角色
+                            user_role = UserRole(user_id=existing_user.id, role_id=teacher_role.id)
+                            db.add(user_role)
             
             await db.commit()
             print("教师数据导入完成")

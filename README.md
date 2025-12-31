@@ -339,34 +339,3 @@ cp .env.example .env
 ```bash
 alembic upgrade head
 ```
-
-6. 启动后端服务
-```bash
-python main.py
-```
-
-### （三）前端部署
-
-1. 安装 Node.js 和 npm
-2. 安装 UniApp 开发工具
-3. 运行前端项目
-```bash
-cd teaching-evaluation-system/uniapp
-npm install
-npm run dev:mp-weixin  # 微信小程序开发模式
-npm run build:mp-weixin  # 构建微信小程序
-```
-
-### （四）测试数据
-
-系统提供测试数据脚本，可快速插入测试用户和数据：
-```bash
-cd backend
-python tests/insert_test_data.py
-```
-
-### （五）健康检查
-
-系统提供健康检查接口：
-- `GET /health` - 检查应用健康状态
-- `GET /health/db` - 检查数据库连接状态

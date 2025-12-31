@@ -379,7 +379,7 @@ class Timetable(Base):
     # 可选：课程容量信息（独立运行可不填；教务接入可填）
     student_count = Column(SmallInteger, comment='学生人数（可空）')
     credit = Column(DECIMAL(3, 1), comment='学分（可空）')
-    course_type = Column(String(32), comment='课程类型（可空：必修/选修/实训...）')
+    course_type = Column(String(32), comment='待评，已评')
 
     # 教务接入：可插拔
     sync_source = Column(TINYINT, default=0, comment='数据来源 0-手工/系统内 1-教务')

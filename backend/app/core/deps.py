@@ -11,7 +11,7 @@ from app.crud.user import get_user_permissions, get_roles_code
 
 
 # 管理员角色：默认绕过权限+角色检查（你可以按实际改）
-ADMIN_BYPASS_ROLES: Tuple[str, ...] = ("super_admin", "admin")
+ADMIN_BYPASS_ROLES: Tuple[str, ...] = ("super_admin", "admin", "school_admin")
 
 
 def get_current_user(request: Request) -> TokenData:

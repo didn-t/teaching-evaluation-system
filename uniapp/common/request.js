@@ -10,11 +10,13 @@ import {
  * 2. 统一处理成功和失败响应
  * 3. 自动更新认证令牌
  * 4. 针对登录和获取角色请求的特殊处理
+ * 5. 支持GET请求URL传参
  * 
  * @param {Object} options - 请求配置对象
  * @param {string} options.url - 请求地址
  * @param {string} [options.method='GET'] - 请求方法
- * @param {Object} [options.data={}] - 请求数据
+ * @param {Object} [options.data={}] - 请求数据（POST/PUT请求使用）
+ * @param {Object} [options.params={}] - URL查询参数（GET请求使用）
  * @param {Object} [options.header={}] - 自定义请求头
  * @returns {Promise} - 返回Promise对象
  */
@@ -32,11 +34,27 @@ export const request = (options) => {
 			header.Authorization = `Bearer ${token}`;
 		}
 
-		console.log('请求地址：', baseUrl + options.url);
+		// 处理URL查询参数
+		let requestUrl = baseUrl + options.url;
+		const params = options.params || {};
+		const method = options.method || 'GET';
+		const data = options.data || {};
+		
+		// 对于所有请求，将params参数转换为URL查询字符串
+		const queryParams = Object.keys(params)
+			.filter(key => params[key] !== undefined && params[key] !== null)
+			.map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+			.join('&');
+		
+		if (queryParams) {
+			requestUrl += (requestUrl.includes('?') ? '&' : '?') + queryParams;
+		}
+
+		console.log('请求地址：', requestUrl);
 		uni.request({
-			url: baseUrl + options.url,
-			method: options.method || 'GET',
-			data: options.data || {},
+			url: requestUrl,
+			method: method,
+			data: method.toUpperCase() === 'GET' ? {} : data,
 			header: header,
 			success: (res) => {
 				// 解析响应数据

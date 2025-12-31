@@ -1,6 +1,6 @@
 {
-    "name" : "pjuniapp",
-    "appid" : "__UNI__6172540",
+    "name" : "uniapp",
+    "appid" : "__UNI__7D10E5A",
     "description" : "",
     "versionName" : "1.0.0",
     "versionCode" : "100",
@@ -50,7 +50,7 @@
     "quickapp" : {},
     /* 小程序特有相关 */
     "mp-weixin" : {
-        "appid" : "wx47e71e280f0f9dbf",
+        "appid" : "",
         "setting" : {
             "urlCheck" : false
         },

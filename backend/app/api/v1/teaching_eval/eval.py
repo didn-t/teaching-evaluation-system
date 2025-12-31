@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -13,9 +13,11 @@ from app.schemas import (
     TokenData,
     EvaluationSubmit,
     EvaluationReviewRequest,
+    CourseTypeUpdate,
 )
 from app.core.deps import get_current_user, require_access
 from app.crud.evaluation import evaluation_crud
+from app.crud.timetable import timetable_crud
 
 # 如果你暂时还没把 college/school 统计迁移到 evaluation_crud，
 # 可以先继续沿用旧函数（有的话就打开下面 import）
@@ -123,7 +125,7 @@ async def list_my_evaluations(
         description="状态：0作废/1有效/2待审核/3驳回",
     ),
     current_user: TokenData = Depends(
-        require_access(roles_any=("teacher",), perms_all=("evaluation:read:self",))
+        require_access(roles_any=("teacher","supervisor","college_admin"))
     ),
     db: AsyncSession = Depends(get_db),
 ):
@@ -173,7 +175,7 @@ async def get_evaluation_list_compat(
     page: int = 1,
     page_size: int = 10,
     current_user: TokenData = Depends(
-        require_access(roles_any=("teacher",), perms_all=("evaluation:read:self",))
+        require_access(roles_any=("teacher","supervisor","college_admin"))
     ),
     db: AsyncSession = Depends(get_db),
 ):
@@ -234,29 +236,31 @@ async def get_evaluation_detail(
     tt = await evaluation_crud.get_timetable(db, timetable_id=ev.timetable_id)
 
     return BaseResponse(
-        code=200,
-        msg="success",
-        data={
-            "id": ev.id,
-            "evaluation_no": ev.evaluation_no,
-            "timetable": _timetable_brief(tt),
-            "teach_teacher_id": ev.teach_teacher_id,
-            "listen_teacher_id": ev.listen_teacher_id,
-            "total_score": ev.total_score,
-            "dimension_scores": ev.dimension_scores,
-            "score_level": ev.score_level,
-            "advantage_content": ev.advantage_content,
-            "problem_content": ev.problem_content,
-            "improve_suggestion": ev.improve_suggestion,
-            "listen_date": _iso(ev.listen_date),
-            "listen_duration": ev.listen_duration,
-            "listen_location": ev.listen_location,
-            "is_anonymous": ev.is_anonymous,
-            "status": ev.status,
-            "submit_time": _iso(ev.submit_time),
-            "create_time": _iso(getattr(ev, "create_time", None)),
-        },
-    )
+            code=200,
+            msg="success",
+            data={
+                "id": ev.id,
+                "evaluation_no": ev.evaluation_no,
+                "timetable": _timetable_brief(tt),
+                "teach_teacher_id": ev.teach_teacher_id,
+                "teach_teacher_name": getattr(ev.teach_teacher, "user_name", None) if ev.teach_teacher else None,
+                "listen_teacher_id": ev.listen_teacher_id,
+                "listen_teacher_name": getattr(ev.listen_teacher, "user_name", None) if ev.listen_teacher else None,
+                "total_score": ev.total_score,
+                "dimension_scores": ev.dimension_scores,
+                "score_level": ev.score_level,
+                "advantage_content": ev.advantage_content,
+                "problem_content": ev.problem_content,
+                "improve_suggestion": ev.improve_suggestion,
+                "listen_date": _iso(ev.listen_date),
+                "listen_duration": ev.listen_duration,
+                "listen_location": ev.listen_location,
+                "is_anonymous": ev.is_anonymous,
+                "status": ev.status,
+                "submit_time": _iso(ev.submit_time),
+                "create_time": _iso(getattr(ev, "create_time", None)),
+            },
+        )
 
 
 # -----------------------------
@@ -561,11 +565,11 @@ async def review_evaluation(
 
 
 # -----------------------------
-# 11) 学院/全校统计（如果你还没迁移，先保留旧函数实现）
+# 11) 学院/全校统计（已实现）
 # -----------------------------
 @router.get(
     "/statistics/college/{college_id}",
-    summary="获取学院评教统计（待接入实现）",
+    summary="获取学院评教统计",
     response_model=BaseResponse,
 )
 async def fetch_college_statistics(
@@ -580,15 +584,18 @@ async def fetch_college_statistics(
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    # 你可以：
-    # 1) 继续用旧函数：stat = await get_college_statistics(db, college_id, academic_year, semester)
-    # 2) 或者把逻辑迁移进 evaluation_crud 后在这里调用
-    raise HTTPException(status_code=501, detail="未实现：请将学院统计迁移到 CRUD 后启用该接口")
+    from app.crud.stats import get_college_statistics
+    
+    try:
+        stat = await get_college_statistics(db, college_id=college_id, academic_year=academic_year, semester=semester)
+        return BaseResponse(code=200, msg="success", data=stat)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get(
     "/statistics/school",
-    summary="获取全校评教统计（待接入实现）",
+    summary="获取全校评教统计",
     response_model=BaseResponse,
 )
 async def fetch_school_statistics(
@@ -602,5 +609,312 @@ async def fetch_school_statistics(
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    # 同上：你可以先接旧函数，或迁移到 evaluation_crud
-    raise HTTPException(status_code=501, detail="未实现：请将全校统计迁移到 CRUD 后启用该接口")
+    from app.crud.stats import get_school_statistics
+    
+    stat = await get_school_statistics(db, academic_year=academic_year, semester=semester)
+    return BaseResponse(code=200, msg="success", data=stat)
+
+
+# -----------------------------
+# 12) 教师排名接口
+# -----------------------------
+@router.get(
+    "/statistics/teacher/ranking",
+    summary="获取教师排名",
+    response_model=BaseResponse,
+)
+async def fetch_teacher_ranking(
+    college_id: Optional[int] = Query(None, description="学院ID，为空则查询全校"),
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    course_type: Optional[str] = Query(None, description="课程类型"),
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("college_admin", "school_admin"),
+            perms_all=("evaluation:stats:teacher",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.crud.stats import get_teacher_ranking
+    
+    ranking = await get_teacher_ranking(
+        db, 
+        college_id=college_id, 
+        academic_year=academic_year, 
+        semester=semester,
+        course_type=course_type
+    )
+    return BaseResponse(code=200, msg="success", data={
+        "ranking": ranking,
+        "total": len(ranking)
+    })
+
+
+# -----------------------------
+# 13) 数据导出接口
+# -----------------------------
+@router.get(
+    "/export/college",
+    summary="导出学院评教数据",
+    response_model=BaseResponse,
+)
+async def export_college_evaluation(
+    college_id: int,
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("college_admin", "school_admin"),
+            perms_all=("evaluation:export:college",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.crud.stats import get_college_statistics
+    from datetime import datetime
+    
+    try:
+        stat = await get_college_statistics(db, college_id=college_id, academic_year=academic_year, semester=semester)
+        # 这里可以添加导出逻辑，比如生成Excel文件
+        # 暂时返回数据结构，实际项目中应返回文件下载链接或文件流
+        return BaseResponse(code=200, msg="success", data={
+            "export_data": stat,
+            "export_type": "college",
+            "export_time": datetime.utcnow().isoformat()
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/export/school",
+    summary="导出全校评教数据",
+    response_model=BaseResponse,
+)
+async def export_school_evaluation(
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("school_admin",),
+            perms_all=("evaluation:export:all",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.crud.stats import get_school_statistics
+    from datetime import datetime
+    
+    stat = await get_school_statistics(db, academic_year=academic_year, semester=semester)
+    # 这里可以添加导出逻辑，比如生成Excel文件
+    # 暂时返回数据结构，实际项目中应返回文件下载链接或文件流
+    return BaseResponse(code=200, msg="success", data={
+        "export_data": stat,
+        "export_type": "school",
+        "export_time": datetime.utcnow().isoformat()
+    })
+
+
+# -----------------------------  
+# 14) 获取待评课程列表  
+# -----------------------------  
+@router.get(
+    "/pending-courses",
+    summary="获取待评课程列表",
+    response_model=BaseResponse,
+)
+async def get_pending_courses(
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("teacher", "college_admin", "school_admin"),
+            perms_all=("timetable:view:self", "evaluation:submit"),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    获取所有待评课程，即course_type为"待评"的课程
+    """
+    skip = (page - 1) * page_size
+    items, total = await timetable_crud.list_pending_evaluation(
+        db,
+        academic_year=academic_year,
+        semester=semester,
+        skip=skip,
+        limit=page_size,
+    )
+
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={
+            "list": [
+                {
+                    "id": item.id,
+                    "academic_year": item.academic_year,
+                    "semester": item.semester,
+                    "course_name": item.course_name,
+                    "course_type": item.course_type,
+                    "class_name": item.class_name,
+                    "teacher_id": item.teacher_id,
+                    "weekday": item.weekday,
+                    "weekday_text": item.weekday_text,
+                    "period": item.period,
+                    "section_time": item.section_time,
+                    "week_info": item.week_info,
+                    "classroom": item.classroom,
+                }
+                for item in items
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        },
+    )
+
+
+# -----------------------------  
+# 15) 获取已评课程列表  
+# -----------------------------  
+@router.get(
+    "/completed-courses",
+    summary="获取已评课程列表",
+    response_model=BaseResponse,
+)
+async def get_completed_courses(
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("teacher", "college_admin", "school_admin"),
+            perms_all=("timetable:view:self", "evaluation:submit"),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    获取所有已评课程，即course_type为"已评"的课程
+    """
+    skip = (page - 1) * page_size
+    items, total = await timetable_crud.list_completed_evaluation(
+        db,
+        academic_year=academic_year,
+        semester=semester,
+        skip=skip,
+        limit=page_size,
+    )
+
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={
+            "list": [
+                {
+                    "id": item.id,
+                    "academic_year": item.academic_year,
+                    "semester": item.semester,
+                    "course_name": item.course_name,
+                    "course_type": item.course_type,
+                    "class_name": item.class_name,
+                    "teacher_id": item.teacher_id,
+                    "weekday": item.weekday,
+                    "weekday_text": item.weekday_text,
+                    "period": item.period,
+                    "section_time": item.section_time,
+                    "week_info": item.week_info,
+                    "classroom": item.classroom,
+                }
+                for item in items
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        },
+    )
+
+
+# -----------------------------  
+# 16) 更新课程评价状态  
+# -----------------------------  
+@router.put(
+    "/courses/{timetable_id}/course-type",
+    summary="更新课程评价状态",
+    response_model=BaseResponse,
+)
+async def update_course_type(
+    timetable_id: int,
+    update_data: CourseTypeUpdate,
+    request: Request,
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("college_admin", "school_admin", "teacher"),
+            perms_all=("evaluation:update:course_type",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    更新课程的评价状态，学院管理员、学校管理员及课程教师本人可以操作
+    """
+    # 验证course_type值是否合法
+    # 去除空格后再验证
+    course_type = update_data.course_type or ""
+    const_course_type = course_type.strip()
+    # 处理中文"空"字的情况
+    if const_course_type == "空":
+        const_course_type = ""
+    if const_course_type not in ["", "待评", "已评"]:
+        raise HTTPException(status_code=400, detail="课程评价状态只能是'待评'或'已评'或空")
+    # 使用处理后的course_type
+    course_type = const_course_type
+    
+    # 获取课程信息，检查权限
+    timetable = await timetable_crud.get(db, id=timetable_id)
+    if not timetable:
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    # 检查课程是否已删除
+    if getattr(timetable, 'is_delete', False):
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    # 获取用户角色信息
+    user_roles = getattr(request, "state", None).user_roles if hasattr(request, "state") else []
+    # 非管理员角色只能修改自己的课程
+    if not any(role in user_roles for role in ["college_admin", "school_admin"]) and timetable.teacher_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权修改此课程的评价状态")
+    
+    try:
+        # 更新课程状态
+        updated_course = await timetable_crud.update_course_type(
+            db,
+            timetable_id=timetable_id,
+            course_type=course_type
+        )
+        
+        if not updated_course:
+            raise HTTPException(status_code=404, detail="课程不存在")
+        
+        return BaseResponse(
+            code=200,
+            msg="success",
+            data={
+                "id": updated_course.id,
+                "course_name": updated_course.course_name,
+                "course_type": updated_course.course_type,
+                "class_name": updated_course.class_name,
+                "teacher_id": updated_course.teacher_id
+            },
+        )
+    except Exception as e:
+        # 记录详细错误信息
+        print(f"更新课程评价状态失败: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")

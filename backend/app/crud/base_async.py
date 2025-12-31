@@ -14,8 +14,15 @@ class CRUDBaseAsync(Generic[ModelType]):
     def __init__(self, model: Type[ModelType]):
         self.model = model
 
-    async def get(self, db: AsyncSession, *, id: Any) -> Optional[ModelType]:
-        return await db.get(self.model, id)
+    async def get(self, db: AsyncSession, *, id: Any, include_deleted: bool = False) -> Optional[ModelType]:
+        """
+        获取单个模型对象，支持软删除过滤
+        """
+        obj = await db.get(self.model, id)
+        # 软删除检查：如果未删除且对象有is_delete字段且值为True，则返回None
+        if obj and not include_deleted and hasattr(obj, "is_delete") and obj.is_delete:
+            return None
+        return obj
 
     async def get_multi(
         self,
@@ -26,22 +33,39 @@ class CRUDBaseAsync(Generic[ModelType]):
         filters: Optional[Sequence[Any]] = None,
         order_by: Optional[Sequence[Any]] = None,
         include_deleted: bool = False,
-    ) -> List[ModelType]:
+    ) -> tuple[List[ModelType], int]:
+        # 构建查询语句
         stmt = select(self.model)
 
+        # 添加过滤条件
         if filters:
             for f in filters:
                 stmt = stmt.where(f)
 
+        # 默认排除软删除
         if not include_deleted and hasattr(self.model, "is_delete"):
             stmt = stmt.where(getattr(self.model, "is_delete") == False)  # noqa: E712
 
+        # 添加排序
         if order_by:
             stmt = stmt.order_by(*order_by)
 
+        # 添加分页
         stmt = stmt.offset(skip).limit(limit)
         result = await db.execute(stmt)
-        return list(result.scalars().all())
+        items = list(result.scalars().all())
+
+        # 计算总数
+        count_stmt = select(func.count()).select_from(self.model)
+        if filters:
+            for f in filters:
+                count_stmt = count_stmt.where(f)
+        if not include_deleted and hasattr(self.model, "is_delete"):
+            count_stmt = count_stmt.where(getattr(self.model, "is_delete") == False)  # noqa: E712
+        count_result = await db.execute(count_stmt)
+        total = count_result.scalar_one()
+
+        return items, total
 
     async def count(
         self,

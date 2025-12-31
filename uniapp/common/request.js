@@ -1,6 +1,6 @@
 import {
 	baseUrl
-} from '@/common/config.js';
+} from './config.js';
 
 /**
  * 全局请求封装函数 - 统一处理请求和响应

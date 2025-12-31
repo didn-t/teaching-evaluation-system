@@ -11,15 +11,16 @@
 				<view class="filter-item">
 					<text class="filter-label">学年：</text>
 					<input 
-						v-model="filters.academic_year" 
+						:value="filters.academic_year" 
 						placeholder="2025-2026" 
 						class="filter-input"
 						placeholder-class="placeholder"
+						@input="handleAcademicYearInput"
 					/>
 				</view>
 				<view class="filter-item">
 					<text class="filter-label">学期：</text>
-					<picker mode="selector" range="[1, 2]" v-model="filters.semester" @change="onSemesterChange">
+					<picker mode="selector" :range="[1, 2]" :value="getSemesterIndex()" @change="onSemesterChange">
 						<view class="picker">
 							{{ filters.semester || '请选择' }}
 						</view>
@@ -29,7 +30,7 @@
 			<view class="filter-row">
 				<view class="filter-item">
 					<text class="filter-label">评价状态：</text>
-					<picker mode="selector" range="['全部', '待评', '已评']" v-model="filters.course_type_index" @change="onCourseTypeChange">
+					<picker mode="selector" :range="['全部', '待评', '已评']" :value="getCourseTypeIndex()" @change="onCourseTypeChange">
 						<view class="picker">
 							{{ filters.course_type || '全部' }}
 						</view>
@@ -38,10 +39,11 @@
 				<view class="filter-item">
 					<text class="filter-label">课程名称：</text>
 					<input 
-						v-model="filters.course_name" 
+						:value="filters.course_name" 
 						placeholder="输入课程名称" 
 						class="filter-input"
 						placeholder-class="placeholder"
+						@input="handleCourseNameInput"
 					/>
 				</view>
 			</view>
@@ -114,7 +116,7 @@
 </template>
 
 <script>
-import { request } from '@/common/request.js';
+import { request } from '../../common/request.js';
 
 export default {
 	data() {
@@ -143,6 +145,25 @@ export default {
 		this.getCourses();
 	},
 	methods: {
+		// 兼容 web 和微信小程序的输入处理
+		handleAcademicYearInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.filters.academic_year = value;
+		},
+		handleCourseNameInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.filters.course_name = value;
+		},
+		getSemesterIndex() {
+			if (this.filters.semester === 1) return 0;
+			if (this.filters.semester === 2) return 1;
+			return 0;
+		},
+		getCourseTypeIndex() {
+			const types = ['全部', '待评', '已评'];
+			const index = types.indexOf(this.filters.course_type);
+			return index >= 0 ? index : 0;
+		},
 		// 获取课程列表
 		async getCourses() {
 			this.loading = true;
@@ -194,16 +215,20 @@ export default {
 		
 		// 学期选择器变化
 		onSemesterChange(e) {
-			this.filters.semester = e.detail.value + 1;
+			// 兼容 web 和微信小程序
+			const index = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e ? e : 0);
+			this.filters.semester = index + 1;
 			this.currentPage = 1;
 			this.getCourses();
 		},
 		
 		// 课程类型选择器变化
 		onCourseTypeChange(e) {
+			// 兼容 web 和微信小程序
 			const types = ['全部', '待评', '已评'];
-			this.filters.course_type_index = e.detail.value;
-			this.filters.course_type = types[e.detail.value];
+			const index = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e ? e : 0);
+			this.filters.course_type_index = index;
+			this.filters.course_type = types[index] || '全部';
 			this.currentPage = 1;
 			this.getCourses();
 		},

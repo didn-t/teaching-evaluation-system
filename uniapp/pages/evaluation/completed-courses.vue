@@ -42,11 +42,11 @@
 			<view class="search-input">
 				<text class="search-icon">🔍</text>
 				<input 
-					v-model="searchKeyword" 
+					:value="searchKeyword" 
 					placeholder="搜索课程名称" 
 					class="input"
 					placeholder-class="placeholder"
-					@input="handleSearch"
+					@input="handleSearchKeywordInput"
 				/>
 			</view>
 		</view>
@@ -95,7 +95,7 @@
 </template>
 
 <script>
-import { request } from '@/common/request.js';
+import { request } from '../../common/request.js';
 
 export default {
 	data() {
@@ -120,6 +120,11 @@ export default {
 		this.getCompletedCourses();
 	},
 	methods: {
+		// 兼容 web 和微信小程序的输入处理
+		handleSearchKeywordInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.searchKeyword = value;
+		},
 		// 获取已评课程列表
 		async getCompletedCourses() {
 			this.loading = true;

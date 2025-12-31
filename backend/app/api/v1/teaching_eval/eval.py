@@ -855,7 +855,6 @@ async def update_course_type(
     current_user: TokenData = Depends(
         require_access(
             roles_any=("college_admin", "school_admin", "teacher"),
-            perms_all=("evaluation:update:course_type",),
         )
     ),
     db: AsyncSession = Depends(get_db),

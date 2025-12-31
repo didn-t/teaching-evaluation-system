@@ -411,6 +411,10 @@ export default {
 			this.form.improve_suggestion = value;
 		},
 
+		onAnonymousChange(e) {
+			this.form.is_anonymous = e.detail.value;
+		},
+
 		async submitEvaluation() {
 			if (!this.form.advantage_content || !this.form.problem_content || !this.form.improve_suggestion) {
 				uni.showToast({ title: '请填写完整的评价内容', icon: 'none', duration: 2000 });

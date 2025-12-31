@@ -42,6 +42,19 @@ async def _get_cached_roles(request: Request, db: AsyncSession, current_user: To
     if cached is not None:
         return cached
     roles = await get_roles_code(db, current_user)
+    
+    # 如果用户没有关联角色，回退到使用role_level推断角色
+    if not roles:
+        from app.crud.user import get_user_role_level
+        role_level = await get_user_role_level(db, current_user)
+        role_level_map = {
+            1: ["teacher"],
+            2: ["supervisor"],
+            3: ["college_admin"],
+            4: ["school_admin"]
+        }
+        roles = role_level_map.get(role_level, [])
+    
     request.state.user_roles = roles
     return roles
 

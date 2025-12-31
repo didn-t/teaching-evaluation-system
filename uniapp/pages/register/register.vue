@@ -11,11 +11,12 @@
 			<view class="form-item">
 				<text class="label">用户名</text>
 				<input 
-					v-model="form.user_on" 
+					:value="form.user_on" 
 					type="text" 
 					placeholder="请输入用户名" 
 					class="input"
 					placeholder-class="placeholder"
+					@input="handleUserOnInput"
 				/>
 			</view>
 			
@@ -23,11 +24,12 @@
 				<text class="label">密码</text>
 				<view class="password-input">
 					<input 
-						v-model="form.password" 
+						:value="form.password" 
 						:type="showPassword ? 'text' : 'password'" 
 						placeholder="请输入密码（6-20位）" 
 						class="input"
 						placeholder-class="placeholder"
+						@input="handlePasswordInput"
 					/>
 					<text class="toggle-password" @tap="togglePassword">
 						{{ showPassword ? '隐藏' : '显示' }}
@@ -38,22 +40,24 @@
 			<view class="form-item">
 				<text class="label">确认密码</text>
 				<input 
-					v-model="form.confirmPassword" 
+					:value="form.confirmPassword" 
 					:type="showPassword ? 'text' : 'password'" 
 					placeholder="请再次输入密码" 
 					class="input"
 					placeholder-class="placeholder"
+					@input="handleConfirmPasswordInput"
 				/>
 			</view>
 			
 			<view class="form-item">
 				<text class="label">姓名</text>
 				<input 
-					v-model="form.user_name" 
+					:value="form.user_name" 
 					type="text" 
 					placeholder="请输入姓名" 
 					class="input"
 					placeholder-class="placeholder"
+					@input="handleUserNameInput"
 				/>
 			</view>
 			
@@ -75,7 +79,7 @@
 </template>
 
 <script>
-import { request } from '@/common/request.js';
+import { request } from '../../common/request.js';
 
 export default {
 	name: 'register',
@@ -92,6 +96,23 @@ export default {
 		};
 	},
 	methods: {
+		// 兼容 web 和微信小程序的输入处理
+		handleUserOnInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.user_on = value;
+		},
+		handlePasswordInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.password = value;
+		},
+		handleConfirmPasswordInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.confirmPassword = value;
+		},
+		handleUserNameInput(e) {
+			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
+			this.form.user_name = value;
+		},
 		// 切换密码显示状态
 		togglePassword() {
 			this.showPassword = !this.showPassword;

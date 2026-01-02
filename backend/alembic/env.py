@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+# 添加项目根目录到Python路径
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -6,13 +13,6 @@ from alembic import context
 
 # 在 env.py 中添加模型导入
 from app.models import *  # 导入所有模型
-
-import sys
-from pathlib import Path
-
-# 添加项目根目录到Python路径
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
 
 from sqlalchemy import engine_from_config
 
@@ -50,7 +50,10 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    from app.core.config import MYSQL_USER, MYSQL_PASSWORD, MYSQL_HOST, MYSQL_PORT, MYSQL_DB
+
+    # 构建数据库URL（从 backend/.env 读取）
+    url = f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"
     context.configure(
         url=url,
         target_metadata=target_metadata,

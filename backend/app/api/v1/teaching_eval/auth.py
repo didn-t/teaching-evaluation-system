@@ -1,11 +1,12 @@
 # app/api/v1/teaching_eval/auth.py
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, Sequence
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.schemas import (
@@ -18,7 +19,7 @@ from app.crud.permission import permission_crud
 from app.crud.user import user_crud
 from app.models import Role, Permission, User, UserRole
 
-router = APIRouter(prefix="/auth", tags=["角色权限管理"])
+router = APIRouter(prefix="", tags=["角色权限管理"])
 
 
 # -----------------------------
@@ -468,8 +469,9 @@ async def assign_roles_to_user(
     """给用户分配角色"""
     try:
         # 参数验证
-        if not role_ids:
-            raise HTTPException(status_code=400, detail="角色ID列表不能为空")
+        # 22300417陈俫坤开发：允许传空数组，表示“清空该用户的所有角色”
+        if role_ids is None:
+            role_ids = []
         
         if len(role_ids) != len(set(role_ids)):
             raise HTTPException(status_code=400, detail="角色ID列表中存在重复项")
@@ -479,16 +481,18 @@ async def assign_roles_to_user(
         if not user or user.is_delete:
             raise HTTPException(status_code=404, detail="用户不存在")
         
-        # 获取要分配的角色
-        stmt = select(Role).where(Role.id.in_(role_ids), Role.is_delete == False)
-        result = await db.execute(stmt)
-        roles = list(result.scalars().all())
-        
-        # 检查是否所有角色都存在
-        if len(roles) != len(role_ids):
-            found_role_ids = {role.id for role in roles}
-            missing_role_ids = [rid for rid in role_ids if rid not in found_role_ids]
-            raise HTTPException(status_code=400, detail=f"以下角色不存在或已删除: {missing_role_ids}")
+        roles: List[Role] = []
+        if role_ids:
+            # 获取要分配的角色
+            stmt = select(Role).where(Role.id.in_(role_ids), Role.is_delete == False)
+            result = await db.execute(stmt)
+            roles = list(result.scalars().all())
+            
+            # 检查是否所有角色都存在
+            if len(roles) != len(role_ids):
+                found_role_ids = {role.id for role in roles}
+                missing_role_ids = [rid for rid in role_ids if rid not in found_role_ids]
+                raise HTTPException(status_code=400, detail=f"以下角色不存在或已删除: {missing_role_ids}")
         
         # 分配角色给用户
         await set_user_roles(db, user=user, roles=roles)
@@ -496,22 +500,25 @@ async def assign_roles_to_user(
         return BaseResponse(code=200, msg="角色分配成功")
     except HTTPException:
         raise
+    except IntegrityError:
+        # 22300417陈俫坤开发：将唯一键冲突转成用户可读提示（避免把 SQL 细节暴露到前端）
+        raise HTTPException(
+            status_code=400,
+            detail="角色分配失败：检测到重复的角色关联，请刷新后重试；如仍失败请联系管理员",
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"分配角色失败: {e}")
+        # 22300417陈俫坤开发：对前端返回明确提示，不暴露底层异常细节
+        raise HTTPException(status_code=500, detail="角色分配失败：服务器内部错误，请联系管理员")
 
 
 # 辅助函数
 async def set_user_roles(db: AsyncSession, *, user: User, roles: Sequence[Role]) -> User:
     """设置用户的角色"""
     try:
-        # 先删除用户现有的所有角色关联
-        stmt = select(UserRole).where(UserRole.user_id == user.id)
-        result = await db.execute(stmt)
-        existing_user_roles = result.scalars().all()
-        
-        # 删除现有角色关联
-        for user_role in existing_user_roles:
-            await db.delete(user_role)
+        # 22300417陈俫坤开发：先删除用户现有的所有角色关联，并 flush
+        # 否则在同一事务里“删+插”同一条 (user_id, role_id) 时可能触发唯一键冲突（Duplicate entry）。
+        await db.execute(delete(UserRole).where(UserRole.user_id == user.id))
+        await db.flush()
         
         # 添加新的角色关联
         for role in roles:
@@ -522,6 +529,9 @@ async def set_user_roles(db: AsyncSession, *, user: User, roles: Sequence[Role])
         await db.commit()
         await db.refresh(user)
         return user
+    except IntegrityError:
+        await db.rollback()
+        raise
     except Exception as e:
         await db.rollback()
         raise e

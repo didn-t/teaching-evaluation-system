@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, Dict, Any
 
@@ -52,7 +52,7 @@ async def get_system_config(
 @router.post("/", summary="设置系统配置")
 async def set_system_config(
     config_key: str,
-    config_value: Any,
+    config_value: Any = Body(...),
     config_type: str = "string",
     config_desc: str = "",
     is_public: bool = False,

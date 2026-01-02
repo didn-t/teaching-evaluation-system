@@ -282,7 +282,8 @@ export default {
 						// 已经在当前页面，不需要跳转
 						break;
 					case 'my':
-						uni.navigateTo({
+						// 22300417陈俫坤开发：修复导航错误 - tabBar页面使用switchTab
+						uni.switchTab({
 							url: '/pages/evaluation/my-evaluations'
 						});
 						break;

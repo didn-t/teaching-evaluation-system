@@ -19,6 +19,10 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """请求验证异常统一返回 BaseResponse 格式"""
+    try:
+        print(f"[422] {request.method} {request.url} -> {exc.errors()}")
+    except Exception:
+        pass
     return JSONResponse(
         status_code=422,
         content=BaseResponse(

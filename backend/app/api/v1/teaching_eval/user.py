@@ -1,15 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
+from sqlalchemy import select
 
 from app.database import get_db
-from app.schemas import UserBase, UserCreate, TokenData, BaseResponse, UserUpdate
+from app.schemas import UserBase, UserCreate, TokenData, BaseResponse, UserUpdate, SupervisorScopeUpdate, SupervisorScopeResponse
 from app.crud.user import (
     get_user, create_user, update_user, get_roles_name, get_roles_code, 
-    get_user_permissions, reset_user_password, get_user_role_level, get_users_list
+    get_user_permissions, reset_user_password, get_user_role_level, get_users_list, get_user_by_id
 )
+from app.crud.user import get_supervisor_scope_ids, set_supervisor_scope_ids
 from app.core import hash_password, create_access_token, verify_password
 from app.core.deps import get_current_user, require_access
+from app.models import Role, UserRole, College
 
 router = APIRouter(prefix="", tags=["用户"])
 
@@ -25,12 +28,22 @@ def set_token_in_response(request: Request, user):
     request.state.token_to_set = token_obj.token
 
 
-def user_payload(user):
+async def user_payload_with_college(db: AsyncSession, user):
+    """22300417陈俫坤开发：补齐 college_name，便于小程序个人信息页展示与编辑学院"""
+    college_name = None
+    try:
+        if getattr(user, "college_id", None):
+            college = await db.get(College, user.college_id)
+            college_name = getattr(college, "college_name", None) if college else None
+    except Exception:
+        college_name = None
+
     return {
         "id": user.id,
         "user_on": user.user_on,
         "user_name": user.user_name,
         "college_id": user.college_id,
+        "college_name": college_name,
         "status": user.status,
     }
 
@@ -54,8 +67,32 @@ async def register(form: UserCreate, request: Request, db: AsyncSession = Depend
     if not user:
         raise HTTPException(status_code=500, detail="创建失败")
 
+    # 22300417陈俫坤开发：注册后默认绑定 teacher 角色（如果存在），避免新用户无任何权限
+    try:
+        res = await db.execute(
+            select(Role).where(Role.role_code == "teacher", Role.is_delete == False)  # noqa: E712
+        )
+        teacher_role = res.scalars().first()
+        if teacher_role:
+            # 复用 auth.py 的逻辑：删除旧关联再新增（注册用户理论上无旧关联）
+            from app.models import UserRole
+
+            db.add(UserRole(user_id=user.id, role_id=teacher_role.id))
+            await db.commit()
+    except Exception:
+        await db.rollback()
+
     set_token_in_response(request, user)
-    return BaseResponse(code=200, msg="success", data={"user": user_payload(user)})
+    # 22300417陈俫坤开发：注册成功后直接返回角色/权限，便于前端立刻显示可用功能
+    roles_name = await get_roles_name(db, TokenData(id=user.id, user_on=user.user_on, college_id=user.college_id, status=user.status, is_delete=user.is_delete))
+    roles_code = await get_roles_code(db, TokenData(id=user.id, user_on=user.user_on, college_id=user.college_id, status=user.status, is_delete=user.is_delete))
+    permissions = await get_user_permissions(db, TokenData(id=user.id, user_on=user.user_on, college_id=user.college_id, status=user.status, is_delete=user.is_delete))
+    return BaseResponse(code=200, msg="success", data={
+        "user": await user_payload_with_college(db, user),
+        "roles_name": roles_name,
+        "roles_code": roles_code,
+        "permissions": permissions,
+    })
 
 
 @router.post("/login", summary="用户登录")
@@ -69,7 +106,7 @@ async def login(form: UserBase, request: Request, db: AsyncSession = Depends(get
         raise HTTPException(status_code=401, detail="账号或密码错误")
 
     set_token_in_response(request, user)
-    return BaseResponse(code=200, msg="success", data={"user": user_payload(user)})
+    return BaseResponse(code=200, msg="success", data={"user": await user_payload_with_college(db, user)})
 
 
 @router.get("/me", summary="我的信息（新增）")
@@ -86,7 +123,7 @@ async def me(
     permissions = await get_user_permissions(db, current_user)
 
     return BaseResponse(code=200, msg="success", data={
-        "user": user_payload(user),
+        "user": await user_payload_with_college(db, user),
         "roles_name": roles_name,
         "roles_code": roles_code,
         "permissions": permissions,
@@ -105,7 +142,7 @@ async def update_user_info(
         raise HTTPException(status_code=400, detail="更新失败")
 
     set_token_in_response(request, new_user)
-    return BaseResponse(code=200, msg="success", data={"user": user_payload(new_user)})
+    return BaseResponse(code=200, msg="success", data={"user": await user_payload_with_college(db, new_user)})
 
 
 @router.post("/change-password", summary="修改密码（新增）")
@@ -230,14 +267,22 @@ async def get_users(
     user_list = []
     for user in users:
         # 获取用户角色
-        user_roles = await get_roles_name(db, TokenData(id=user.id, user_on="", college_id=None, status=1, is_delete=False))
+        # 22300417陈俫坤开发：同时返回 role_ids/role_codes，便于前端回显并准确分配角色
+        token_stub = TokenData(id=user.id, user_on="", college_id=None, status=1, is_delete=False)
+        user_roles = await get_roles_name(db, token_stub)
+        user_role_codes = await get_roles_code(db, token_stub)
+        role_ids_stmt = select(UserRole.role_id).where(UserRole.user_id == user.id)
+        role_ids_res = await db.execute(role_ids_stmt)
+        user_role_ids = list(role_ids_res.scalars().all())
         user_list.append({
             "id": user.id,
             "user_on": user.user_on,
             "user_name": user.user_name,
             "college_id": user.college_id,
             "status": user.status,
-            "roles": user_roles
+            "roles": user_roles,
+            "role_codes": user_role_codes,
+            "role_ids": user_role_ids
         })
     
     return BaseResponse(
@@ -250,3 +295,44 @@ async def get_users(
             "limit": limit
         }
     )
+
+
+@router.get("/supervisor/{supervisor_user_id}/scope", summary="获取督导负责范围（学校管理员）")
+async def get_supervisor_scope(
+    supervisor_user_id: int,
+    current_user: TokenData = Depends(require_access(roles_any=("school_admin",), perms_all=("user:manage:all",))),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：督导范围查询"""
+    college_ids, research_room_ids = await get_supervisor_scope_ids(db, supervisor_user_id=supervisor_user_id)
+    return BaseResponse(code=200, msg="success", data=SupervisorScopeResponse(
+        supervisor_user_id=supervisor_user_id,
+        college_ids=college_ids,
+        research_room_ids=research_room_ids,
+    ))
+
+
+@router.put("/supervisor/{supervisor_user_id}/scope", summary="设置督导负责范围（学校管理员）")
+async def set_supervisor_scope(
+    supervisor_user_id: int,
+    payload: SupervisorScopeUpdate,
+    current_user: TokenData = Depends(require_access(roles_any=("school_admin",), perms_all=("user:manage:all",))),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：督导范围配置
+
+    - 支持配置多学院 + 多教研室
+    - 采用“软删旧记录 + 插入新记录”的幂等方式
+    """
+    # 校验目标用户存在
+    target = await get_user_by_id(db, TokenData(id=supervisor_user_id, user_on="", college_id=None, status=1, is_delete=False))
+    if not target:
+        raise HTTPException(status_code=404, detail="目标用户不存在")
+
+    await set_supervisor_scope_ids(
+        db,
+        supervisor_user_id=supervisor_user_id,
+        college_ids=list(payload.college_ids or []),
+        research_room_ids=list(payload.research_room_ids or []),
+    )
+    return BaseResponse(code=200, msg="success", data=None)

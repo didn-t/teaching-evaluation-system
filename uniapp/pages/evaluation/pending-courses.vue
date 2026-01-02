@@ -197,7 +197,8 @@ export default {
 					});
 					break;
 				case 'my':
-					uni.navigateTo({
+					// 22300417陈俫坤开发：修复导航错误 - tabBar页面使用switchTab
+					uni.switchTab({
 						url: '/pages/evaluation/my-evaluations'
 					});
 					break;

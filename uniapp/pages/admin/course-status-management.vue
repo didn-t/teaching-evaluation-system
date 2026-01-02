@@ -189,6 +189,11 @@ export default {
 						params: params
 					});
 					this.courses = res.list || [];
+					// 22300417陈俫坤开发：课程名称前端筛选（后端该接口暂未提供 course_name 参数）
+					if (this.filters.course_name) {
+						const kw = String(this.filters.course_name).trim();
+						this.courses = this.courses.filter(x => String(x.course_name || '').includes(kw));
+					}
 					this.totalPages = Math.ceil(res.total / this.pageSize) || 1;
 				} else {
 					// 这里需要一个获取所有课程的接口，暂时使用待评课程接口作为示例
@@ -198,6 +203,11 @@ export default {
 						params: params
 					});
 					this.courses = res.list || [];
+					// 22300417陈俫坤开发：课程名称前端筛选（后端该接口暂未提供 course_name 参数）
+					if (this.filters.course_name) {
+						const kw = String(this.filters.course_name).trim();
+						this.courses = this.courses.filter(x => String(x.course_name || '').includes(kw));
+					}
 					this.totalPages = Math.ceil(res.total / this.pageSize) || 1;
 				}
 			} catch (error) {
@@ -265,10 +275,11 @@ export default {
 		// 更新课程评价状态
 		async updateCourseStatus(timetableId, courseType) {
 			try {
+				// 22300417陈俫坤开发：对齐后端接口：PUT /eval/courses/{timetable_id}/course-type，body 为 {course_type}
 				await request({
-					url: `/courses/${timetableId}/course-type`,
+					url: `/eval/courses/${timetableId}/course-type`,
 					method: 'PUT',
-					params: {
+					data: {
 						course_type: courseType
 					}
 				});

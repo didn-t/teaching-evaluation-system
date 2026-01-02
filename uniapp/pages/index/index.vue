@@ -52,6 +52,18 @@
 					<text class="module-title">个人信息</text>
 				</view>
 
+				<!-- 22300417陈俫坤开发：督导老师/学院管理员入口：学院统计（负责范围统计/排名/导出） -->
+				<view
+					class="module-item"
+					v-if="userInfo.roles_code && (userInfo.roles_code.includes('supervisor') || userInfo.roles_code.includes('college_admin'))"
+					@tap="navigateTo('/pages/admin/statistics')"
+				>
+					<view class="module-icon stats">
+						<text class="icon-text">院</text>
+					</view>
+					<text class="module-title">学院统计</text>
+				</view>
+
 				<!-- 管理员功能入口 -->
 				<view class="module-item" v-if="userInfo.roles_code && userInfo.roles_code.includes('school_admin')" @tap="showAdminMenu">
 					<view class="module-icon admin">
@@ -88,7 +100,8 @@
 			<view class="latest-evaluations-section">
 				<view class="section-header">
 					<text class="section-title">最新评教记录</text>
-					<text class="more" @tap="navigateTo('/pages/evaluation/my-evaluations')">查看更多 ></text>
+					<!-- 22300417陈俫坤开发：用样式绘制右箭头，避免出现“&gt;/%gt”实体字符 -->
+					<text class="more" @tap="navigateTo('/pages/evaluation/my-evaluations')">查看更多</text>
 				</view>
 				<view class="evaluations-list">
 					<view v-if="latestEvaluations.length === 0" class="empty-text">
@@ -137,23 +150,37 @@
 				<view class="menu-list">
 					<view class="menu-item" @tap="navigateToAdmin('/pages/admin/user-management')">
 						<text class="menu-text">用户管理</text>
-						<text class="arrow">></text>
+						<!-- 22300417陈俫坤开发：用样式绘制右箭头，避免出现“&gt;”实体字符 -->
+						<text class="arrow"></text>
+					</view>
+					<!-- 22300417陈俫坤开发：新增系统管理入口（角色/权限/系统配置） -->
+					<view class="menu-item" @tap="navigateToAdmin('/pages/admin/role-management')">
+						<text class="menu-text">角色管理</text>
+						<text class="arrow"></text>
+					</view>
+					<view class="menu-item" @tap="navigateToAdmin('/pages/admin/permission-management')">
+						<text class="menu-text">权限管理</text>
+						<text class="arrow"></text>
+					</view>
+					<view class="menu-item" @tap="navigateToAdmin('/pages/admin/system-config')">
+						<text class="menu-text">系统配置</text>
+						<text class="arrow"></text>
 					</view>
 					<view class="menu-item" @tap="navigateToAdmin('/pages/admin/evaluation-review')">
 						<text class="menu-text">评教审核</text>
-						<text class="arrow">></text>
+						<text class="arrow"></text>
 					</view>
 					<view class="menu-item" @tap="navigateToAdmin('/pages/admin/statistics')">
 						<text class="menu-text">数据统计</text>
-						<text class="arrow">></text>
+						<text class="arrow"></text>
 					</view>
 					<view class="menu-item" @tap="navigateToAdmin('/pages/admin/college-management')">
 						<text class="menu-text">学院管理</text>
-						<text class="arrow">></text>
+						<text class="arrow"></text>
 					</view>
 					<view class="menu-item" @tap="navigateToAdmin('/pages/admin/course-status-management')">
 						<text class="menu-text">课程状态管理</text>
-						<text class="arrow">></text>
+						<text class="arrow"></text>
 					</view>
 				</view>
 			</view>
@@ -723,5 +750,13 @@ export default {
 .arrow {
 	font-size: 32rpx;
 	color: #C0C4CC;
+}
+
+.arrow::after {
+	content: '>';
+}
+
+.more::after {
+	content: '>';
 }
 </style>

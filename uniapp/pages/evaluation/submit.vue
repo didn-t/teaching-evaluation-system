@@ -317,8 +317,10 @@ export default {
 
 		async getCourseInfo() {
 			try {
+				// 22300417陈俫坤开发：后端路由为 /api/v1/teaching-eval/org/timetable/{timetable_id}
+				// request.js 会自动拼 baseUrl，这里只写相对路径 /org/timetable/{id}
 				const res = await request({
-					url: `/org/org/timetable/${this.timetableId}`,
+					url: `/org/timetable/${this.timetableId}`,
 					method: 'GET'
 				});
 

@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -18,6 +19,7 @@ from app.schemas import (
 from app.core.deps import get_current_user, require_access
 from app.crud.evaluation import evaluation_crud
 from app.crud.timetable import timetable_crud
+from app.models import TeachingEvaluation, User, Timetable
 
 # 如果你暂时还没把 college/school 统计迁移到 evaluation_crud，
 # 可以先继续沿用旧函数（有的话就打开下面 import）
@@ -64,7 +66,8 @@ def _timetable_brief(tt) -> dict:
 async def submit_evaluation(
     submit_data: EvaluationSubmit,
     current_user: TokenData = Depends(
-        require_access(roles_any=("teacher",), perms_all=("evaluation:submit",))
+        # 22300417陈俫坤开发：督导老师也需要参与听课并提交评教
+        require_access(roles_any=("teacher", "supervisor"), perms_all=("evaluation:submit",))
     ),
     db: AsyncSession = Depends(get_db),
 ):
@@ -431,7 +434,8 @@ async def fetch_evaluations_by_timetable(
 async def get_evaluation_dimensions(
     current_user: TokenData = Depends(
         require_access(
-            roles_any=("teacher", "college_admin", "school_admin"),
+            # 22300417陈俫坤开发：督导老师需要查看评教维度配置
+            roles_any=("teacher", "supervisor", "college_admin", "school_admin"),
             perms_all=("evaluation:dimension:read",),
         )
     ),
@@ -489,10 +493,46 @@ async def fetch_my_teacher_statistics(
 
 
 # -----------------------------
+# 8.1) 听课人统计：我提交的（新增，用于个人统计“我提交的评教”）
+# -----------------------------
+@router.get(
+    "/statistics/listen/me",
+    summary="获取我提交的评教统计（新增）",
+    response_model=BaseResponse,
+)
+async def fetch_my_listen_statistics(
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(roles_any=("teacher",), perms_all=("evaluation:stats:teacher",))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    22300417陈俫坤开发
+
+    说明：系统中的“教师”既可能作为听课人去评教（listen_teacher），也可能作为授课人被评教（teach_teacher）。
+    - /statistics/teacher/me：我作为授课教师收到的评教统计
+    - /statistics/listen/me：我作为听课教师提交的评教统计
+    """
+    try:
+        stat = await evaluation_crud.listen_statistics(
+            db,
+            listen_teacher_id=current_user.id,
+            academic_year=academic_year,
+            semester=semester,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return BaseResponse(code=200, msg="success", data=stat)
+
+
+# -----------------------------
 # 9) 教师统计：指定教师（管理员用）
 # -----------------------------
 @router.get(
-    "/statistics/teacher/{teacher_id}",
+    "/statistics/teacher/{teacher_id:int}",
     summary="获取指定教师评教统计（管理员）",
     response_model=BaseResponse,
 )
@@ -524,6 +564,85 @@ async def fetch_teacher_statistics_admin(
 # -----------------------------
 # 10) 审核评教（统一入口）
 # -----------------------------
+@router.get(
+    "/review/pending",
+    summary="待审核评教列表（管理员）",
+    response_model=BaseResponse,
+)
+async def list_pending_reviews(
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("college_admin", "school_admin"),
+            perms_all=("evaluation:review",),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    22300417陈俫坤开发
+
+    待审核评教列表：status=2。
+    - school_admin：查看全部
+    - college_admin：默认按 teach_teacher.college_id = current_user.college_id 过滤
+    """
+    skip = (page - 1) * page_size
+
+    conditions = [
+        TeachingEvaluation.is_delete == False,  # noqa: E712
+        TeachingEvaluation.status == 2,
+    ]
+
+    # 学院管理员默认只看本学院授课教师的评教
+    if getattr(current_user, "college_id", None):
+        # school_admin 在 deps.py 中属于 bypass 角色，通常 college_id 可能为空；这里用 college_id 是否存在作为过滤条件
+        conditions.append(User.college_id == current_user.college_id)
+
+    base = (
+        select(TeachingEvaluation)
+        .join(User, TeachingEvaluation.teach_teacher_id == User.id)
+        .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+        .where(and_(*conditions))
+        .order_by(TeachingEvaluation.submit_time.desc())
+    )
+
+    items = list((await db.execute(base.offset(skip).limit(page_size))).scalars().all())
+    count_subq = base.with_only_columns(TeachingEvaluation.id).subquery()
+    total = int((await db.execute(select(func.count()).select_from(count_subq))).scalar_one())
+
+    data_list = []
+    for ev in items:
+        tt = await evaluation_crud.get_timetable(db, timetable_id=ev.timetable_id)
+        data_list.append(
+            {
+                "id": ev.id,
+                "evaluation_no": ev.evaluation_no,
+                "timetable": _timetable_brief(tt),
+                "teach_teacher_id": ev.teach_teacher_id,
+                "teach_teacher_name": getattr(ev.teach_teacher, "user_name", None) if getattr(ev, "teach_teacher", None) else None,
+                "listen_teacher_id": ev.listen_teacher_id,
+                "listen_teacher_name": getattr(ev.listen_teacher, "user_name", None) if getattr(ev, "listen_teacher", None) else None,
+                "total_score": ev.total_score,
+                "score_level": ev.score_level,
+                "listen_date": _iso(ev.listen_date),
+                "submit_time": _iso(ev.submit_time),
+                "status": ev.status,
+            }
+        )
+
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={
+            "list": data_list,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        },
+    )
+
+
 @router.put(
     "/{evaluation_id}/review",
     summary="审核评教记录（统一入口）",
@@ -578,19 +697,45 @@ async def fetch_college_statistics(
     semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
     current_user: TokenData = Depends(
         require_access(
-            roles_any=("college_admin", "school_admin"),
+            # 22300417陈俫坤开发：督导老师可查看负责范围（学院）统计
+            roles_any=("supervisor", "college_admin", "school_admin"),
             perms_all=("evaluation:stats:college",),
         )
     ),
     db: AsyncSession = Depends(get_db),
 ):
     from app.crud.stats import get_college_statistics
+    from app.crud.user import get_roles_code
+    from app.crud.user import get_effective_supervisor_scope
+
+    # 22300417陈俫坤开发：督导角色权限检查 - 按配置范围查看统计
+    roles = await get_roles_code(db, current_user)
+    if "supervisor" in roles and "school_admin" not in roles:
+        # 22300417陈俫坤开发：按督导配置范围校验
+        allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
+        if not allow_college_ids and not allow_room_ids:
+            raise HTTPException(status_code=403, detail="督导未配置负责范围，无法查看统计")
+        if allow_college_ids and college_id not in allow_college_ids:
+            raise HTTPException(status_code=403, detail="督导无权查看该学院统计")
+    
+    # 22300417陈俫坤开发：验证学院ID是否存在
+    if college_id:
+        from app.models import College
+        college_exists = await db.execute(
+            select(College.id).where(College.id == college_id, College.is_delete == False)
+        )
+        if not college_exists.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail=f"学院ID {college_id} 不存在")
     
     try:
         stat = await get_college_statistics(db, college_id=college_id, academic_year=academic_year, semester=semester)
+        if not stat or (isinstance(stat, dict) and stat.get('total_evaluations', 0) == 0):
+            return BaseResponse(code=200, msg="暂无数据", data=stat or {})
         return BaseResponse(code=200, msg="success", data=stat)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=f"查询统计失败: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}")
 
 
 @router.get(
@@ -624,27 +769,90 @@ async def fetch_school_statistics(
     response_model=BaseResponse,
 )
 async def fetch_teacher_ranking(
-    college_id: Optional[int] = Query(None, description="学院ID，为空则查询全校"),
+    college_id: Optional[str] = Query(None, description="学院ID，为空则查询全校"),
     academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
-    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    semester: Optional[str] = Query(None, description="学期 1-春季 2-秋季"),
     course_type: Optional[str] = Query(None, description="课程类型"),
     current_user: TokenData = Depends(
         require_access(
-            roles_any=("college_admin", "school_admin"),
+            # 22300417陈俫坤开发：督导老师可查看负责范围（学院）内的教师排名
+            roles_any=("supervisor", "college_admin", "school_admin"),
             perms_all=("evaluation:stats:teacher",),
         )
     ),
     db: AsyncSession = Depends(get_db),
 ):
     from app.crud.stats import get_teacher_ranking
+    from app.crud.user import get_roles_code
+    from app.crud.user import get_effective_supervisor_scope
+
+    # 22300417陈俫坤开发：兼容小程序空字符串参数，避免 FastAPI 422
+    def _parse_optional_int(v: Optional[str]) -> Optional[int]:
+        if v is None:
+            return None
+        s = str(v).strip()
+        if s == "" or s.lower() in ("null", "undefined"):
+            return None
+        return int(s)
+
+    try:
+        college_id_int = _parse_optional_int(college_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="college_id 参数不合法")
+
+    college_ids_int: Optional[List[int]] = None
+
+    try:
+        semester_int = _parse_optional_int(semester)
+    except Exception:
+        raise HTTPException(status_code=400, detail="semester 参数不合法")
+
+    if semester_int is not None and semester_int not in (1, 2):
+        raise HTTPException(status_code=400, detail="semester 只能为 1 或 2")
+
+    # 22300417陈俫坤开发：范围校验（督导按配置范围查看排名）
+    try:
+        roles = await get_roles_code(db, current_user)
+        if "supervisor" in roles and "school_admin" not in roles:
+            # 22300417陈俫坤开发：按督导配置范围校验和默认值
+            try:
+                allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
+                if not allow_college_ids and not allow_room_ids:
+                    # 督导未配置范围时，使用其所属学院作为默认范围
+                    if hasattr(current_user, 'college_id') and current_user.college_id:
+                        college_id_int = current_user.college_id
+                    else:
+                        raise HTTPException(status_code=403, detail="督导未配置负责范围，无法查看排名")
+                else:
+                    if college_id_int is not None:
+                        if allow_college_ids and college_id_int not in allow_college_ids:
+                            raise HTTPException(status_code=403, detail="督导无权查看该学院排名")
+                    else:
+                        # 22300417陈俫坤开发：未指定学院时，按所有允许学院一起统计排名，避免范围过窄导致无数据
+                        if allow_college_ids:
+                            college_ids_int = allow_college_ids
+            except Exception as scope_error:
+                # 范围查询失败时，使用督导所属学院
+                if hasattr(current_user, 'college_id') and current_user.college_id:
+                    college_id_int = current_user.college_id
+                else:
+                    raise HTTPException(status_code=403, detail="督导权限验证失败")
+    except Exception as role_error:
+        # 角色查询失败时，继续执行（可能是其他角色）
+        pass
     
-    ranking = await get_teacher_ranking(
-        db, 
-        college_id=college_id, 
-        academic_year=academic_year, 
-        semester=semester,
-        course_type=course_type
-    )
+    try:
+        ranking = await get_teacher_ranking(
+            db, 
+            college_id=college_id_int, 
+            college_ids=college_ids_int,
+            academic_year=academic_year, 
+            semester=semester_int,
+            course_type=course_type
+        )
+    except Exception as e:
+        # 22300417陈俫坤开发：捕获查询错误并返回友好提示
+        raise HTTPException(status_code=400, detail=f"查询排名失败: {str(e)}")
     return BaseResponse(code=200, msg="success", data={
         "ranking": ranking,
         "total": len(ranking)
@@ -665,7 +873,8 @@ async def export_college_evaluation(
     semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
     current_user: TokenData = Depends(
         require_access(
-            roles_any=("college_admin", "school_admin"),
+            # 22300417陈俫坤开发：督导老师可导出负责范围（学院）数据
+            roles_any=("supervisor", "college_admin", "school_admin"),
             perms_all=("evaluation:export:college",),
         )
     ),
@@ -673,6 +882,23 @@ async def export_college_evaluation(
 ):
     from app.crud.stats import get_college_statistics
     from datetime import datetime
+    from app.crud.user import get_roles_code
+    from app.crud.user import get_effective_supervisor_scope
+
+    # 22300417陈俫坤开发：范围校验（督导按配置范围导出数据）
+    roles = await get_roles_code(db, current_user)
+    if "supervisor" in roles and "school_admin" not in roles:
+        # 22300417陈俫坤开发：按督导配置范围校验和默认值
+        allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
+        if not allow_college_ids and not allow_room_ids:
+            raise HTTPException(status_code=403, detail="督导未配置负责范围，无法导出数据")
+        if college_id is not None:
+            if allow_college_ids and college_id not in allow_college_ids:
+                raise HTTPException(status_code=403, detail="督导无权导出该学院数据")
+        else:
+            # 未指定学院时，默认取第一个允许的学院（如果有配置学院范围）
+            if allow_college_ids:
+                college_id = allow_college_ids[0]
     
     try:
         stat = await get_college_statistics(db, college_id=college_id, academic_year=academic_year, semester=semester)
@@ -731,18 +957,22 @@ async def get_pending_courses(
     semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
     current_user: TokenData = Depends(
         require_access(
-            roles_any=("teacher", "college_admin", "school_admin"),
+            # 22300417陈俫坤开发：督导老师也可以查看待评课程
+            roles_any=("teacher", "supervisor", "college_admin", "school_admin"),
             perms_all=("timetable:view:self", "evaluation:submit"),
         )
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    获取所有待评课程，即course_type为"待评"的课程
+    """22300417陈俫坤开发：获取待评课程（按当前用户）
+
+    旧逻辑仅按 Timetable.course_type=待评 过滤，这是全局字段，无法表达“某个用户已经评教过”。
+    新逻辑：以 TeachingEvaluation 是否存在 (timetable_id, listen_teacher_id=current_user.id) 来判断是否已评教。
     """
     skip = (page - 1) * page_size
-    items, total = await timetable_crud.list_pending_evaluation(
+    items, total = await timetable_crud.list_pending_evaluation_for_user(
         db,
+        listen_teacher_id=current_user.id,
         academic_year=academic_year,
         semester=semester,
         skip=skip,
@@ -793,18 +1023,21 @@ async def get_completed_courses(
     semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
     current_user: TokenData = Depends(
         require_access(
-            roles_any=("teacher", "college_admin", "school_admin"),
+            # 22300417陈俫坤开发：督导老师也可以查看已评课程
+            roles_any=("teacher", "supervisor", "college_admin", "school_admin"),
             perms_all=("timetable:view:self", "evaluation:submit"),
         )
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    获取所有已评课程，即course_type为"已评"的课程
+    """22300417陈俫坤开发：获取已评课程（按当前用户）
+
+    只要当前用户对某课表存在评教记录，即判定为“已评”。
     """
     skip = (page - 1) * page_size
-    items, total = await timetable_crud.list_completed_evaluation(
+    items, total = await timetable_crud.list_completed_evaluation_for_user(
         db,
+        listen_teacher_id=current_user.id,
         academic_year=academic_year,
         semester=semester,
         skip=skip,

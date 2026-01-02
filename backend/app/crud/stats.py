@@ -378,56 +378,74 @@ async def get_school_statistics(db: AsyncSession, *, academic_year: Optional[str
     }
 
 
-async def get_teacher_ranking(db: AsyncSession, *, college_id: Optional[int] = None, academic_year: Optional[str] = None, semester: Optional[int] = None, course_type: Optional[str] = None) -> List[Dict[str, Any]]:
-    """获取教师排名"""
-    # 构建查询
-    ranking_stmt = select(
-        User.id,
-        User.user_name,
-        College.college_name,
-        func.avg(TeachingEvaluation.total_score).label('avg_score'),
-        func.count(TeachingEvaluation.id).label('evaluation_count')
-    ).join(
-        Timetable, User.id == Timetable.teacher_id
-    ).join(
-        TeachingEvaluation, TeachingEvaluation.timetable_id == Timetable.id
-    ).join(
-        College, Timetable.college_id == College.id
-    ).where(
-        TeachingEvaluation.is_delete == False,  # noqa: E712
-        TeachingEvaluation.status == 1,  # 只算有效
-    ).group_by(
-        User.id, User.user_name, College.college_name
-    )
-    
-    # 添加过滤条件
-    if college_id:
-        ranking_stmt = ranking_stmt.where(Timetable.college_id == college_id)
-    
-    if academic_year and semester:
-        ranking_stmt = ranking_stmt.where(
-            Timetable.academic_year == academic_year,
-            Timetable.semester == semester
+async def get_teacher_ranking(
+    db: AsyncSession,
+    *,
+    college_id: Optional[int] = None,
+    college_ids: Optional[List[int]] = None,
+    academic_year: Optional[str] = None,
+    semester: Optional[int] = None,
+    course_type: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """22300417陈俫坤开发：获取教师排名，修复SQL查询问题"""
+    try:
+        # 22300417陈俫坤开发：以 TeachingEvaluation.teach_teacher_id 为准计算排名，避免课表 teacher_id 与评教记录不一致导致无数据
+        ranking_stmt = (
+            select(
+                User.id,
+                User.user_name,
+                College.college_name,
+                func.avg(TeachingEvaluation.total_score).label("avg_score"),
+                func.count(TeachingEvaluation.id).label("evaluation_count"),
+            )
+            .select_from(TeachingEvaluation)
+            .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+            .join(User, TeachingEvaluation.teach_teacher_id == User.id)
+            .join(College, Timetable.college_id == College.id)
+            .where(
+                TeachingEvaluation.is_delete == False,  # noqa: E712
+                # 22300417陈俫坤开发：兼容“待审核(2)”状态，否则在未走审核流程时排名会为空
+                TeachingEvaluation.status.in_([1, 2]),
+                Timetable.is_delete == False,  # noqa: E712
+                User.is_delete == False,  # noqa: E712
+                College.is_delete == False,  # noqa: E712
+            )
+            .group_by(User.id, User.user_name, College.college_name)
         )
-    
-    if course_type:
-        ranking_stmt = ranking_stmt.where(Timetable.course_type == course_type)
-    
-    # 按平均分排序
-    ranking_stmt = ranking_stmt.order_by(func.avg(TeachingEvaluation.total_score).desc())
-    
-    # 执行查询
-    result = await db.execute(ranking_stmt)
-    ranking = result.all()
-    
-    # 格式化结果
-    return [
-        {
-            "teacher_id": r[0],
-            "teacher_name": r[1],
-            "college_name": r[2],
-            "avg_score": float(r[3]) if r[3] else 0,
-            "evaluation_count": r[4]
-        }
-        for r in ranking
-    ]
+
+        # 添加过滤条件
+        if college_id:
+            ranking_stmt = ranking_stmt.where(Timetable.college_id == college_id)
+        elif college_ids:
+            ranking_stmt = ranking_stmt.where(Timetable.college_id.in_(college_ids))
+
+        if academic_year:
+            ranking_stmt = ranking_stmt.where(Timetable.academic_year == academic_year)
+
+        if semester:
+            ranking_stmt = ranking_stmt.where(Timetable.semester == semester)
+
+        if course_type:
+            ranking_stmt = ranking_stmt.where(Timetable.course_type == course_type)
+
+        # 按平均分排序
+        ranking_stmt = ranking_stmt.order_by(func.avg(TeachingEvaluation.total_score).desc())
+
+        result = await db.execute(ranking_stmt)
+        ranking = result.all()
+
+        return [
+            {
+                "teacher_id": r[0],
+                "teacher_name": r[1],
+                "college_name": r[2],
+                "avg_score": float(r[3]) if r[3] else 0,
+                "evaluation_count": r[4],
+            }
+            for r in ranking
+        ]
+
+    except Exception as e:
+        # 22300417陈俫坤开发：不要吞掉异常，让上层接口返回明确错误，便于定位
+        print(f"教师排名查询失败: {e}")
+        raise

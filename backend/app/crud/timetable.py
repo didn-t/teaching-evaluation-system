@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, func, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.base_async import CRUDBaseAsync
-from app.models import Timetable  # 按你的实际路径改
+from app.models import Timetable, TeachingEvaluation
 
 
 class CRUDTimetable(CRUDBaseAsync[Timetable]):
@@ -145,6 +145,115 @@ class CRUDTimetable(CRUDBaseAsync[Timetable]):
             order_by=[Timetable.academic_year.desc(), Timetable.semester.desc()],
             include_deleted=include_deleted,
         )
+
+    async def list_completed_evaluation_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        listen_teacher_id: int,
+        academic_year: Optional[str] = None,
+        semester: Optional[int] = None,
+        skip: int = 0,
+        limit: int = 10,
+        include_deleted: bool = False,
+    ) -> tuple[List[Timetable], int]:
+        """22300417陈俫坤开发：按当前用户过滤已评课表
+
+        规则：TeachingEvaluation 中存在 (timetable_id, listen_teacher_id) 的记录 => 该课表对该用户已评。
+        注意：不依赖 Timetable.course_type（全局字段），避免“评教后仍显示待评”的问题。
+        """
+
+        filters: List[Any] = []
+        if academic_year:
+            filters.append(Timetable.academic_year == academic_year)
+        if semester:
+            filters.append(Timetable.semester == semester)
+        if not include_deleted:
+            filters.append(Timetable.is_delete == False)  # noqa: E712
+
+        evaluated_exists = (
+            select(TeachingEvaluation.id)
+            .where(
+                TeachingEvaluation.timetable_id == Timetable.id,
+                TeachingEvaluation.listen_teacher_id == listen_teacher_id,
+                TeachingEvaluation.is_delete == False,  # noqa: E712
+            )
+            .limit(1)
+        )
+
+        cond = and_(*filters) if filters else true()
+        base = select(Timetable).where(cond, evaluated_exists.exists())
+
+        res = await db.execute(
+            base.order_by(Timetable.academic_year.desc(), Timetable.semester.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        items = list(res.scalars().all())
+
+        count_subq = base.with_only_columns(Timetable.id).subquery()
+        total = int((await db.execute(select(func.count()).select_from(count_subq))).scalar_one() or 0)
+        return items, total
+
+    async def list_pending_evaluation_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        listen_teacher_id: int,
+        academic_year: Optional[str] = None,
+        semester: Optional[int] = None,
+        skip: int = 0,
+        limit: int = 10,
+        include_deleted: bool = False,
+    ) -> tuple[List[Timetable], int]:
+        """22300417陈俫坤开发：按当前用户过滤待评课表
+
+        规则：
+        1. 排除自己教授的课程（不能评教自己的课）
+        2. 排除已评教过的课程
+        3. 只显示当前学期或指定学期的课程
+        """
+
+        # 22300417陈俫坤开发：合理过滤待评课程
+        filters: List[Any] = [
+            Timetable.teacher_id != listen_teacher_id,  # 不能评教自己的课
+        ]
+        if academic_year:
+            filters.append(Timetable.academic_year == academic_year)
+        if semester:
+            filters.append(Timetable.semester == semester)
+        else:
+            # 22300417陈俫坤开发：默认只显示当前学期课程，避免历史课程过多
+            from datetime import datetime
+            current_month = datetime.now().month
+            current_semester = 1 if current_month <= 7 else 2  # 简单判断：1-7月为春季，8-12月为秋季
+            filters.append(Timetable.semester == current_semester)
+        if not include_deleted:
+            filters.append(Timetable.is_delete == False)  # noqa: E712
+
+        evaluated_exists = (
+            select(TeachingEvaluation.id)
+            .where(
+                TeachingEvaluation.timetable_id == Timetable.id,
+                TeachingEvaluation.listen_teacher_id == listen_teacher_id,
+                TeachingEvaluation.is_delete == False,  # noqa: E712
+            )
+            .limit(1)
+        )
+
+        cond = and_(*filters) if filters else true()
+        base = select(Timetable).where(cond, ~evaluated_exists.exists())
+
+        res = await db.execute(
+            base.order_by(Timetable.academic_year.desc(), Timetable.semester.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        items = list(res.scalars().all())
+
+        count_subq = base.with_only_columns(Timetable.id).subquery()
+        total = int((await db.execute(select(func.count()).select_from(count_subq))).scalar_one() or 0)
+        return items, total
 
     async def list_completed_evaluation(
         self,

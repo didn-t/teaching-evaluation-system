@@ -300,22 +300,87 @@ class TeachingEvaluationCRUD:
         evaluations = list((await db.execute(stmt)).scalars().all())
         scores = [e.total_score for e in evaluations]
 
+        # 22300417陈俫坤开发：补齐待审核/总数统计口径（用于个人统计页展示）
+        pending_stmt = (
+            select(func.count(TeachingEvaluation.id))
+            .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+            .where(
+                TeachingEvaluation.teach_teacher_id == teacher_id,
+                TeachingEvaluation.is_delete == False,  # noqa: E712
+                TeachingEvaluation.status == 2,
+            )
+        )
+        if academic_year and semester:
+            pending_stmt = pending_stmt.where(Timetable.academic_year == academic_year, Timetable.semester == semester)
+        pending_evaluation_num = int((await db.execute(pending_stmt)).scalar_one() or 0)
+        valid_evaluation_num = int(len(evaluations))
+        total_evaluations = int(valid_evaluation_num + pending_evaluation_num)
+
         college_name = None
         if teacher.college_id:
             college = (await db.execute(select(College).where(College.id == teacher.college_id))).scalar_one_or_none()
             college_name = college.college_name if college else None
 
+        # 22300417陈俫坤开发：评教趋势（按月份聚合平均分，只统计有效评教）
+        trend_map: Dict[str, List[int]] = {}
+        for ev in evaluations:
+            dt = ev.listen_date or ev.submit_time
+            try:
+                label = dt.strftime("%Y-%m") if dt else ""
+            except Exception:
+                label = ""
+            if not label:
+                continue
+            trend_map.setdefault(label, []).append(int(ev.total_score or 0))
+        trend_data = [
+            {"label": k, "score": round(mean(v), 1) if v else 0.0}
+            for k, v in sorted(trend_map.items(), key=lambda x: x[0])
+        ]
+
+        # 22300417陈俫坤开发：维度名映射（前端提交的维度 key -> 数据库维度 code/name）
+        dim_code_map = {
+            "teachingAttitude": "teaching_attitude",
+            "content": "teaching_content",
+            "method": "teaching_method",
+            "effect": "teaching_effect",
+        }
+        dim_fallback_name = {
+            "teachingAttitude": "教学态度",
+            "content": "教学内容",
+            "method": "教学方法与手段",
+            "effect": "教学效果",
+        }
+        dim_rows = await db.execute(
+            select(EvaluationDimension.dimension_code, EvaluationDimension.dimension_name)
+            .where(EvaluationDimension.is_delete == False, EvaluationDimension.status == 1)  # noqa: E712
+        )
+        dim_name_by_code = {r[0]: r[1] for r in dim_rows.all() if r and r[0]}
+
         if not evaluations:
+            empty_dimension_scores = [
+                {
+                    "dimension_code": dim_code_map[k],
+                    "dimension_key": k,
+                    "dimension_name": dim_name_by_code.get(dim_code_map[k], dim_fallback_name.get(k, k)),
+                    "score": 0.0,
+                }
+                for k in ("teachingAttitude", "content", "method", "effect")
+            ]
             return {
                 "teacher_id": teacher_id,
                 "teacher_name": teacher.user_name,
                 "college_id": teacher.college_id,
                 "college_name": college_name,
-                "total_evaluation_num": 0,
-                "avg_total_score": None,
+                "total_evaluations": total_evaluations,
+                "valid_evaluation_num": valid_evaluation_num,
+                "pending_evaluation_num": pending_evaluation_num,
+                "total_evaluation_num": valid_evaluation_num,
+                "avg_total_score": 0.0,
                 "max_score": None,
                 "min_score": None,
                 "dimension_avg_scores": None,
+                "dimension_scores": empty_dimension_scores,
+                "trend_data": trend_data,
                 "score_distribution": {"优秀": 0, "良好": 0, "合格": 0, "不合格": 0},
                 "high_freq_problems": None,
                 "high_freq_suggestions": None,
@@ -337,6 +402,16 @@ class TeachingEvaluationCRUD:
                 vals = [float(ds.get(k, 0) or 0) for ds in dimension_scores_list]
                 dimension_avg_scores[k] = round(mean(vals), 2) if vals else 0.0
 
+        dimension_scores = [
+            {
+                "dimension_code": dim_code_map[k],
+                "dimension_key": k,
+                "dimension_name": dim_name_by_code.get(dim_code_map[k], dim_fallback_name.get(k, k)),
+                "score": float(dimension_avg_scores.get(k, 0) or 0),
+            }
+            for k in ("teachingAttitude", "content", "method", "effect")
+        ]
+
         problems = [e.problem_content.strip() for e in evaluations if e.problem_content and e.problem_content.strip()]
         suggestions = [e.improve_suggestion.strip() for e in evaluations if e.improve_suggestion and e.improve_suggestion.strip()]
         high_freq_problems = [t for t, _ in Counter(problems).most_common(5)] if problems else None
@@ -347,14 +422,126 @@ class TeachingEvaluationCRUD:
             "teacher_name": teacher.user_name,
             "college_id": teacher.college_id,
             "college_name": college_name,
-            "total_evaluation_num": len(evaluations),
-            "avg_total_score": round(mean(scores), 2),
+            "total_evaluations": total_evaluations,
+            "valid_evaluation_num": valid_evaluation_num,
+            "pending_evaluation_num": pending_evaluation_num,
+            "total_evaluation_num": valid_evaluation_num,
+            "avg_total_score": round(mean(scores), 2) if scores else 0.0,
             "max_score": max(scores),
             "min_score": min(scores),
             "dimension_avg_scores": dimension_avg_scores or None,
+            "dimension_scores": dimension_scores,
+            "trend_data": trend_data,
             "score_distribution": score_distribution,
             "high_freq_problems": high_freq_problems,
             "high_freq_suggestions": high_freq_suggestions,
+        }
+
+    # ------- 统计：听课人（我提交的评教统计） -------
+    async def listen_statistics(
+        self,
+        db: AsyncSession,
+        *,
+        listen_teacher_id: int,
+        academic_year: Optional[str] = None,
+        semester: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        listener = (await db.execute(select(User).where(User.id == listen_teacher_id))).scalar_one_or_none()
+        if not listener:
+            raise ValueError("用户不存在")
+
+        stmt = (
+            select(TeachingEvaluation)
+            .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+            .where(
+                TeachingEvaluation.listen_teacher_id == listen_teacher_id,
+                TeachingEvaluation.is_delete == False,  # noqa: E712
+                TeachingEvaluation.status == 1,
+            )
+        )
+        if academic_year and semester:
+            stmt = stmt.where(Timetable.academic_year == academic_year, Timetable.semester == semester)
+
+        evaluations = list((await db.execute(stmt)).scalars().all())
+        scores = [e.total_score for e in evaluations]
+
+        pending_stmt = (
+            select(func.count(TeachingEvaluation.id))
+            .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+            .where(
+                TeachingEvaluation.listen_teacher_id == listen_teacher_id,
+                TeachingEvaluation.is_delete == False,  # noqa: E712
+                TeachingEvaluation.status == 2,
+            )
+        )
+        if academic_year and semester:
+            pending_stmt = pending_stmt.where(Timetable.academic_year == academic_year, Timetable.semester == semester)
+        pending_evaluation_num = int((await db.execute(pending_stmt)).scalar_one() or 0)
+        valid_evaluation_num = int(len(evaluations))
+        total_evaluations = int(valid_evaluation_num + pending_evaluation_num)
+
+        trend_map: Dict[str, List[int]] = {}
+        for ev in evaluations:
+            dt = ev.listen_date or ev.submit_time
+            try:
+                label = dt.strftime("%Y-%m") if dt else ""
+            except Exception:
+                label = ""
+            if not label:
+                continue
+            trend_map.setdefault(label, []).append(int(ev.total_score or 0))
+        trend_data = [
+            {"label": k, "score": round(mean(v), 1) if v else 0.0}
+            for k, v in sorted(trend_map.items(), key=lambda x: x[0])
+        ]
+
+        dim_code_map = {
+            "teachingAttitude": "teaching_attitude",
+            "content": "teaching_content",
+            "method": "teaching_method",
+            "effect": "teaching_effect",
+        }
+        dim_fallback_name = {
+            "teachingAttitude": "教学态度",
+            "content": "教学内容",
+            "method": "教学方法与手段",
+            "effect": "教学效果",
+        }
+        dim_rows = await db.execute(
+            select(EvaluationDimension.dimension_code, EvaluationDimension.dimension_name)
+            .where(EvaluationDimension.is_delete == False, EvaluationDimension.status == 1)  # noqa: E712
+        )
+        dim_name_by_code = {r[0]: r[1] for r in dim_rows.all() if r and r[0]}
+
+        dimension_scores_list = [e.dimension_scores for e in evaluations if isinstance(e.dimension_scores, dict)]
+        dimension_avg_scores: Dict[str, float] = {}
+        if dimension_scores_list:
+            all_keys = set().union(*[ds.keys() for ds in dimension_scores_list])
+            for k in all_keys:
+                vals = [float(ds.get(k, 0) or 0) for ds in dimension_scores_list]
+                dimension_avg_scores[k] = round(mean(vals), 2) if vals else 0.0
+
+        dimension_scores = [
+            {
+                "dimension_code": dim_code_map[k],
+                "dimension_key": k,
+                "dimension_name": dim_name_by_code.get(dim_code_map[k], dim_fallback_name.get(k, k)),
+                "score": float(dimension_avg_scores.get(k, 0) or 0),
+            }
+            for k in ("teachingAttitude", "content", "method", "effect")
+        ]
+
+        return {
+            "listen_teacher_id": listen_teacher_id,
+            "listen_teacher_name": listener.user_name,
+            "total_evaluations": total_evaluations,
+            "valid_evaluation_num": valid_evaluation_num,
+            "pending_evaluation_num": pending_evaluation_num,
+            "total_evaluation_num": valid_evaluation_num,
+            "avg_total_score": round(mean(scores), 2) if scores else 0.0,
+            "dimension_avg_scores": dimension_avg_scores or None,
+            "dimension_scores": dimension_scores,
+            "trend_data": trend_data,
         }
 
 

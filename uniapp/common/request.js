@@ -42,7 +42,17 @@ export const request = (options) => {
 		
 		// 对于所有请求，将params参数转换为URL查询字符串
 		const queryParams = Object.keys(params)
-			.filter(key => params[key] !== undefined && params[key] !== null)
+			// 22300417陈俫坤开发：过滤空字符串/"null"/"undefined"，避免后端 FastAPI 422
+			.filter(key => {
+				const v = params[key];
+				if (v === undefined || v === null) return false;
+				if (typeof v === 'string') {
+					const s = v.trim();
+					if (!s) return false;
+					if (s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined') return false;
+				}
+				return true;
+			})
 			.map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
 			.join('&');
 		
@@ -104,7 +114,14 @@ export const request = (options) => {
 					if (isLoginOrRoleRequest) {
 						reject(responseData);
 					} else {
-						const errorMsg = msg || '接口请求失败，请稍后重试';
+						// 22300417陈俫坤开发：422 显示具体字段校验失败原因
+						let errorMsg = msg || '接口请求失败，请稍后重试';
+						if (code === 422 && Array.isArray(responseData.data) && responseData.data.length) {
+							const first = responseData.data[0];
+							const loc = Array.isArray(first.loc) ? first.loc.join('.') : '';
+							errorMsg = `${errorMsg}${loc ? '：' + loc : ''}${first.msg ? ' - ' + first.msg : ''}`;
+							console.error('422 validation errors:', responseData.data);
+						}
 						uni.showToast({
 							title: errorMsg,
 							icon: 'none',

@@ -28,6 +28,8 @@ from app.schemas import (
     TokenData,
 )
 from app.core.deps import get_current_user, require_access
+from app.crud.user import get_roles_code
+from app.crud.user import get_effective_supervisor_scope
 from app.crud.org import (
     college_crud,
     research_room_crud,
@@ -36,7 +38,30 @@ from app.crud.org import (
 )
 from app.crud.timetable import timetable_crud
 
-router = APIRouter(prefix="/org", tags=["组织结构管理"])
+router = APIRouter(prefix="", tags=["组织结构管理"])
+
+
+@router.get("/research-rooms", summary="获取教研室列表")
+async def list_research_rooms(
+    college_id: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 200,
+    current_user: TokenData = Depends(
+        require_access(roles_any=("school_admin", "college_admin", "supervisor"), perms_all=("org:research_room:read",))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：用于督导范围配置时拉取教研室列表"""
+    filters = []
+    if college_id:
+        filters.append(research_room_crud.model.college_id == college_id)
+    rooms, total = await research_room_crud.get_multi(db, skip=skip, limit=limit, filters=filters)
+    return BaseResponse(code=200, msg="success", data={
+        "list": [ResearchRoomResponse.model_validate(x) for x in rooms],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    })
 
 
 # -----------------------------
@@ -62,7 +87,8 @@ async def create_college(
 async def get_college(
     college_id: int,
     current_user: TokenData = Depends(
-        require_access(roles_any=("school_admin", "college_admin", "teacher"), perms_all=("org:college:read",))
+        # 22300417陈俫坤开发：督导老师需要查看负责学院信息
+        require_access(roles_any=("school_admin", "college_admin", "supervisor", "teacher"), perms_all=("org:college:read",))
     ),
     db: AsyncSession = Depends(get_db),
 ):
@@ -119,7 +145,8 @@ async def list_colleges(
     skip: int = 0,
     limit: int = 100,
     current_user: TokenData = Depends(
-        require_access(roles_any=("school_admin", "college_admin", "teacher"), perms_all=("org:college:read",))
+        # 22300417陈俫坤开发：督导老师需要拉取学院列表用于范围筛选/统计
+        require_access(roles_any=("school_admin", "college_admin", "supervisor", "teacher"), perms_all=("org:college:read",))
     ),
     db: AsyncSession = Depends(get_db),
 ):
@@ -469,11 +496,48 @@ async def list_timetables(
     skip: int = 0,
     limit: int = 50,
     current_user: TokenData = Depends(
-        require_access(roles_any=("school_admin", "college_admin", "teacher"))
+        # 22300417陈俫坤开发：督导老师需要查看负责范围内教师课表
+        require_access(roles_any=("school_admin", "college_admin", "supervisor", "teacher"))
     ),
     db: AsyncSession = Depends(get_db),
 ):
     """获取课表列表，支持按教师、学院、班级、课程、时间等多维度过滤"""
+    # 22300417陈俫坤开发：按角色限制数据范围
+    # - teacher：仅允许看自己的课表
+    # - supervisor/college_admin：仅允许看本学院课表
+    # - school_admin：不限制
+    roles = await get_roles_code(db, current_user)
+    is_school_admin = "school_admin" in roles
+    is_supervisor = "supervisor" in roles
+    is_college_admin = "college_admin" in roles
+    is_college_scope = is_college_admin or is_supervisor
+    is_teacher_only = ("teacher" in roles) and (not is_school_admin) and (not is_college_scope)
+
+    if is_teacher_only:
+        # teacher 强制限定 teacher_id = 当前用户，并禁止通过 user_on/college_id 绕过
+        teacher_id = current_user.id
+        user_on = None
+        college_id = None
+    elif is_college_scope and not is_school_admin:
+        # 22300417陈俫坤开发：范围限制
+        # - college_admin：只能看本学院（固定）
+        # - supervisor：优先按 supervisor_scope 配置；未配置时回退到 current_user.college_id
+        if is_college_admin:
+            if not getattr(current_user, "college_id", None):
+                raise HTTPException(status_code=403, detail="未设置学院，无法查看学院课表")
+            if college_id and int(college_id) != int(current_user.college_id):
+                raise HTTPException(status_code=403, detail="无权查看其他学院课表")
+            college_id = int(current_user.college_id)
+        elif is_supervisor:
+            allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
+            if not allow_college_ids and not allow_room_ids:
+                raise HTTPException(status_code=403, detail="未配置负责范围，且未设置学院")
+
+            # 如果前端指定 college_id，必须在允许范围内（仅当配置了 college_ids 时校验）
+            if college_id is not None and allow_college_ids:
+                if int(college_id) not in [int(x) for x in allow_college_ids]:
+                    raise HTTPException(status_code=403, detail="无权查看该学院课表")
+
     # 构建过滤条件
     filters = []
     if academic_year:
@@ -484,6 +548,12 @@ async def list_timetables(
         filters.append(timetable_crud.model.teacher_id == teacher_id)
     if college_id:
         filters.append(timetable_crud.model.college_id == college_id)
+    else:
+        # 22300417陈俫坤开发：督导配置了多学院范围时，默认限定在这些学院
+        if is_supervisor and (not is_school_admin):
+            allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
+            if allow_college_ids:
+                filters.append(timetable_crud.model.college_id.in_(allow_college_ids))
     if class_id:
         filters.append(timetable_crud.model.class_id == class_id)
     if class_name:
@@ -504,9 +574,12 @@ async def list_timetables(
         from sqlalchemy.orm import joinedload
         from app.models import User
         
-        # 使用joinedload预加载teacher关系
+        # 22300417陈俫坤开发：支持按教师工号/账号（User.user_on）查询课表。
+        # 这里必须 join User，否则 where(User.user_on...) 无法正确关联到课表的 teacher_id。
+        # 使用 joinedload 预加载 teacher 关系，避免后续序列化时额外查询。
         timetables = await db.execute(
             select(timetable_crud.model)
+            .join(User, timetable_crud.model.teacher_id == User.id)
             .options(joinedload(timetable_crud.model.teacher))
             .where(
                 *filters,
@@ -531,13 +604,44 @@ async def list_timetables(
         total = total.scalar_one()
     else:
         # 常规查询
-        timetables, total = await timetable_crud.get_multi(
-            db,
-            filters=filters,
-            skip=skip,
-            limit=limit,
-            order_by=[timetable_crud.model.weekday, timetable_crud.model.period, timetable_crud.model.section_time],
-        )
+        # 22300417陈俫坤开发：如果督导只配置了教研室范围（无 college_ids），则 join TeacherProfile 过滤 research_room_id
+        if is_supervisor and (not is_school_admin):
+            allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
+            if (not allow_college_ids) and allow_room_ids:
+                from app.models import TeacherProfile
+                base_stmt = (
+                    select(timetable_crud.model)
+                    .join(TeacherProfile, TeacherProfile.user_id == timetable_crud.model.teacher_id)
+                    .where(*filters, TeacherProfile.research_room_id.in_(allow_room_ids))
+                    .offset(skip)
+                    .limit(limit)
+                    .order_by(timetable_crud.model.weekday, timetable_crud.model.period, timetable_crud.model.section_time)
+                )
+                res = await db.execute(base_stmt)
+                timetables = res.scalars().all()
+                total_res = await db.execute(
+                    select(func.count())
+                    .select_from(timetable_crud.model)
+                    .join(TeacherProfile, TeacherProfile.user_id == timetable_crud.model.teacher_id)
+                    .where(*filters, TeacherProfile.research_room_id.in_(allow_room_ids))
+                )
+                total = total_res.scalar_one()
+            else:
+                timetables, total = await timetable_crud.get_multi(
+                    db,
+                    filters=filters,
+                    skip=skip,
+                    limit=limit,
+                    order_by=[timetable_crud.model.weekday, timetable_crud.model.period, timetable_crud.model.section_time],
+                )
+        else:
+            timetables, total = await timetable_crud.get_multi(
+                db,
+                filters=filters,
+                skip=skip,
+                limit=limit,
+                order_by=[timetable_crud.model.weekday, timetable_crud.model.period, timetable_crud.model.section_time],
+            )
     
     # 转换为响应模型
     timetable_responses = [TimetableResponse.model_validate(timetable) for timetable in timetables]

@@ -6,7 +6,7 @@
 				<text class="search-icon">🔍</text>
 				<input 
 					:value="searchKeyword" 
-					placeholder="搜索教师ID" 
+					placeholder="搜索教师工号/账号" 
 					class="input"
 					placeholder-class="placeholder"
 					@input="handleSearchKeywordInput"
@@ -199,19 +199,25 @@ export default {
 				
 				// 获取当前登录用户信息
 				const userInfo = uni.getStorageSync('userInfo') || {};
+				const codes = userInfo.roles_code || [];
+				const isScopeViewer = codes.includes('school_admin') || codes.includes('college_admin') || codes.includes('supervisor');
 				
-				// 只使用teacher_id参数，不使用user_on参数
+				// 22300417陈俫坤开发：督导老师/学院管理员默认查看本学院课表；普通老师默认查看自己的课表。
+				// - 输入搜索关键词：用 user_on 参数（账号/工号）查询（后端会做角色范围限制）。
 				if (this.searchKeyword.trim()) {
-					// 如果有搜索关键词，使用关键词作为teacher_id
-					params.teacher_id = this.searchKeyword.trim();
+					params.user_on = this.searchKeyword.trim();
+				} else if (isScopeViewer) {
+					// 默认按学院范围展示
+					params.college_id = userInfo.college_id || undefined;
 				} else {
-					// 如果没有搜索关键词，使用当前登录用户的id
 					params.teacher_id = userInfo.id || '';
 				}
 				
+				// 22300417陈俫坤开发：后端路由为 /api/v1/teaching-eval/org/timetables
+				// request.js 会自动拼 baseUrl，这里只写相对路径 /org/timetables
 				// 调用课表接口，包含所有必要的查询参数
 				const res = await request({
-					url: '/org/org/timetables',
+					url: '/org/timetables',
 					method: 'GET',
 					params: params
 				});
@@ -505,7 +511,8 @@ export default {
 }
 
 .timetable-body {
-	/* 课表内容 */
+	display: flex;
+	flex-direction: column;
 }
 
 .timetable-row {
@@ -574,6 +581,7 @@ export default {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	display: -webkit-box;
+	line-clamp: 2;
 	-webkit-line-clamp: 2;
 	-webkit-box-orient: vertical;
 }
@@ -595,6 +603,7 @@ export default {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	display: -webkit-box;
+	line-clamp: 2;
 	-webkit-line-clamp: 2;
 	-webkit-box-orient: vertical;
 }

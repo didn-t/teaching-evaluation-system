@@ -1,5 +1,11 @@
 <template>
 	<view class="personal-statistics-container">
+		<!-- 22300417陈俫坤开发：个人统计拆分为“我收到的评教”(授课被评) 和 “我提交的评教”(听课评教) -->
+		<view class="mode-tabs">
+			<view class="mode-tab" :class="mode === 'received' ? 'active' : ''" @tap="switchMode('received')">我收到的评教</view>
+			<view class="mode-tab" :class="mode === 'submitted' ? 'active' : ''" @tap="switchMode('submitted')">我提交的评教</view>
+		</view>
+
 		<!-- 统计概览 -->
 		<view class="overview-section">
 			<text class="section-title">评教统计概览</text>
@@ -11,7 +17,8 @@
 				</view>
 				
 				<view class="stat-item">
-					<text class="stat-value">{{ stats.average_score.toFixed(1) }}</text>
+					<!-- 22300417陈俫坤开发：average_score 可能为 undefined/null，避免 toFixed 报错 -->
+					<text class="stat-value">{{ Number(stats.average_score || 0).toFixed(1) }}</text>
 					<text class="stat-label">平均评分</text>
 				</view>
 				
@@ -113,6 +120,8 @@ export default {
 	name: 'personal-statistics',
 	data() {
 		return {
+			// 22300417陈俫坤开发：统计模式 received=我收到的评教（授课被评）；submitted=我提交的评教（听课评教）
+			mode: 'received',
 			// 统计数据
 			stats: {
 				total_evaluations: 0,
@@ -141,6 +150,11 @@ export default {
 		this.getStatistics();
 	},
 	methods: {
+		switchMode(mode) {
+			// 22300417陈俫坤开发：切换“我收到的/我提交的”后刷新统计
+			this.mode = mode;
+			this.getStatistics();
+		},
 		// 兼容 web 和微信小程序的输入处理
 		handleAcademicYearInput(e) {
 			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
@@ -154,8 +168,9 @@ export default {
 		async getStatistics() {
 			this.loading = true;
 			try {
+				const url = this.mode === 'submitted' ? '/eval/statistics/listen/me' : '/eval/statistics/teacher/me';
 				const res = await request({
-					url: '/eval/statistics/teacher/me',
+					url,
 					method: 'GET',
 					params: {
 						academic_year: this.filter.academic_year || undefined,
@@ -163,9 +178,34 @@ export default {
 					}
 				});
 				
-				// 直接使用res作为统计数据，因为request.js已经处理过响应格式
+				// 22300417陈俫坤开发：对齐后端增强统计字段（trend_data + dimension_scores(含dimension_name) + pending/valid/total）
+				// 这里做一层兼容转换，避免不同版本字段不一致导致 undefined。
 				if (res) {
-					this.stats = res;
+					const total = Number(res.total_evaluations ?? res.total_evaluation_num ?? 0);
+					const valid = Number(res.valid_evaluation_num ?? res.valid_evaluations ?? res.total_evaluation_num ?? 0);
+					const pending = Number(res.pending_evaluation_num ?? res.pending_evaluations ?? 0);
+					const avg = Number(res.avg_total_score ?? res.average_score ?? 0);
+					
+					// trend_data：后端增强字段，按月份聚合；没提供则保持空数组
+					const trendData = Array.isArray(res.trend_data) ? res.trend_data : [];
+					
+					// dimension_scores：优先使用后端增强字段（含 dimension_name）；否则兼容旧的 dimension_avg_scores
+					let dimensionScores = Array.isArray(res.dimension_scores) ? res.dimension_scores : [];
+					if (!dimensionScores.length && res.dimension_avg_scores && typeof res.dimension_avg_scores === 'object') {
+						dimensionScores = Object.keys(res.dimension_avg_scores).map(k => ({
+							dimension_name: k,
+							score: Number(res.dimension_avg_scores[k] ?? 0)
+						}));
+					}
+					
+					this.stats = {
+						total_evaluations: total,
+						average_score: avg,
+						valid_evaluations: valid,
+						pending_evaluations: pending,
+						trend_data: trendData,
+						dimension_scores: dimensionScores
+					};
 				}
 			} catch (error) {
 				console.error('获取个人统计数据失败:', error);
@@ -186,7 +226,6 @@ export default {
 			if (this.semesterOptions && this.semesterOptions[index]) {
 				this.filter.semester = this.semesterOptions[index].value;
 			}
-			this.filter.semester = this.semesterOptions[e.detail.value].value;
 		},
 		
 		// 获取选中的学期标签
@@ -209,6 +248,30 @@ export default {
 	background-color: #F5F7FA;
 	min-height: 100vh;
 	padding: 30rpx;
+}
+
+.mode-tabs {
+	display: flex;
+	background-color: #FFFFFF;
+	border-radius: 12rpx;
+	overflow: hidden;
+	margin-bottom: 30rpx;
+	box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+}
+
+.mode-tab {
+	flex: 1;
+	text-align: center;
+	padding: 22rpx 10rpx;
+	font-size: 28rpx;
+	color: #666666;
+	background-color: #FFFFFF;
+}
+
+.mode-tab.active {
+	color: #FFFFFF;
+	background-color: #3E5C76;
+	font-weight: 600;
 }
 
 /* 公共样式 */

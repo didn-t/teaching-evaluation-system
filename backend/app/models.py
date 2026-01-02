@@ -327,6 +327,43 @@ class TeacherProfile(Base):
     )
 
 
+class SupervisorScope(Base):
+    """22300417陈俫坤开发：督导负责范围配置
+
+    支持：
+    - 多学院（scope_type='college'）
+    - 多教研组（scope_type='research_room'）
+
+    注意：若某督导未配置范围，业务侧可回退到 current_user.college_id。
+    """
+
+    __tablename__ = 'supervisor_scope'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='督导范围ID')
+
+    supervisor_user_id = Column(
+        BigInteger,
+        ForeignKey('user.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+        comment='督导用户ID（user.id）',
+    )
+
+    scope_type = Column(String(16), nullable=False, index=True, comment="范围类型 college/research_room")
+    scope_id = Column(BigInteger, nullable=False, index=True, comment='范围对象ID')
+
+    create_time = Column(DateTime, server_default=func.now(), comment='创建时间')
+    is_delete = Column(Boolean, default=False, index=True, comment='逻辑删除')
+
+    supervisor_user = relationship('User')
+
+    __table_args__ = (
+        UniqueConstraint('supervisor_user_id', 'scope_type', 'scope_id', name='uk_supervisor_scope'),
+        Index('idx_supervisor_scope_user_type', 'supervisor_user_id', 'scope_type'),
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'comment': '督导负责范围配置'}
+    )
+
+
 # =========================================================
 #  课表（核心业务：适配你的JSON课表数据）
 # =========================================================

@@ -13,7 +13,8 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     user_name: Optional[str]
-    college_id: Optional[str] = None
+    # 22300417陈俫坤开发：college_id 在数据库为 BigInteger，这里用 int 以避免类型不一致
+    college_id: Optional[int] = None
 
 
 class UserUpdate(BaseModel):
@@ -83,6 +84,22 @@ class ResearchRoomCreate(BaseModel):
 class ResearchRoomUpdate(BaseModel):
     room_name: Optional[str] = Field(None, max_length=64)
     is_delete: Optional[bool] = None
+
+
+# -------- Supervisor Scope --------
+class SupervisorScopeUpdate(BaseModel):
+    """22300417陈俫坤开发：学校管理员配置督导负责范围"""
+
+    college_ids: List[int] = Field(default_factory=list, description="负责学院ID列表")
+    research_room_ids: List[int] = Field(default_factory=list, description="负责教研室ID列表")
+
+
+class SupervisorScopeResponse(BaseModel):
+    """22300417陈俫坤开发：督导负责范围返回"""
+
+    supervisor_user_id: int
+    college_ids: List[int] = Field(default_factory=list)
+    research_room_ids: List[int] = Field(default_factory=list)
 
 
 # -------- Major --------

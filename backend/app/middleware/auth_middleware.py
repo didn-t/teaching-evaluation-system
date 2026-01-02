@@ -19,6 +19,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/health",
             "/api/v1/teaching-eval/user/login",
             "/api/v1/teaching-eval/user/register",
+            "/api/v1/teaching-eval/system/bootstrap",
+            "/api/v1/teaching-eval/system/bootstrap/",
+            "/api/v1/teaching-eval/system/db-info",
+            "/api/v1/teaching-eval/system/db-info/",
             
         ]
 

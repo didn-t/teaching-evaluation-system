@@ -75,7 +75,8 @@
 					</view>
 					
 					<view class="item-footer">
-						<text class="arrow">></text>
+						<!-- 22300417陈俫坤开发：用样式绘制右箭头，避免出现“&gt;/%gt”实体字符 -->
+						<text class="arrow"></text>
 					</view>
 				</view>
 			</view>
@@ -499,6 +500,10 @@ export default {
 .arrow {
 	font-size: 32rpx;
 	color: #C0C4CC;
+}
+
+.arrow::after {
+	content: '>';
 }
 
 /* 空状态 */

@@ -38,22 +38,23 @@
 		<view class="function-section">
 			<view class="function-item" @tap="navigateTo('/pages/password/change-password')">
 				<text class="function-text">修改密码</text>
-				<text class="arrow">></text>
+				<!-- 22300417陈俫坤开发：用样式绘制右箭头，避免出现“&gt;/%gt”实体字符 -->
+				<text class="arrow"></text>
 			</view>
 			
 			<view class="function-item" @tap="editProfile">
 				<text class="function-text">编辑资料</text>
-				<text class="arrow">></text>
+				<text class="arrow"></text>
 			</view>
 			
 			<view class="function-item" @tap="aboutUs">
 				<text class="function-text">关于我们</text>
-				<text class="arrow">></text>
+				<text class="arrow"></text>
 			</view>
 			
 			<view class="function-item" @tap="feedback">
 				<text class="function-text">意见反馈</text>
-				<text class="arrow">></text>
+				<text class="arrow"></text>
 			</view>
 		</view>
 		
@@ -80,6 +81,13 @@
 							placeholder="请输入姓名" 
 							@input="handleUserNameInput"
 						/>
+					</view>
+					
+					<view class="form-item">
+						<text class="form-label">学院</text>
+						<picker mode="selector" :range="collegePickerNames" :value="collegeIndex" @change="handleCollegeChange">
+							<view class="form-input picker-input">{{ currentCollegeName }}</view>
+						</picker>
 					</view>
 					
 					<view class="form-item">
@@ -112,19 +120,71 @@ export default {
 			userInfo: {},
 			editForm: {
 				user_name: '',
-				user_on: ''
+				user_on: '',
+				// 22300417陈俫坤开发：支持用户设置学院
+				college_id: null
 			},
+			// 22300417陈俫坤开发：学院列表（用于 picker）
+			colleges: [],
 			loading: false
 		};
 	},
+	computed: {
+		collegePickerNames() {
+			const names = ['未设置'];
+			(this.colleges || []).forEach(c => names.push(c.college_name));
+			return names;
+		},
+		collegeIndex() {
+			return this.getCollegeIndexById(this.editForm.college_id);
+		},
+		currentCollegeName() {
+			return this.getCollegeNameById(this.editForm.college_id);
+		}
+	},
 	onLoad() {
 		this.getUserInfo();
+		this.loadColleges();
 	},
 	onShow() {
 		// 页面显示时刷新用户信息
 		this.getUserInfo();
 	},
 	methods: {
+		// 22300417陈俫坤开发：获取学院列表供用户选择
+		async loadColleges() {
+			try {
+				const res = await request({
+					url: '/org/colleges',
+					method: 'GET',
+					params: { skip: 0, limit: 200 }
+				});
+				this.colleges = (res && res.list) ? res.list : [];
+			} catch (e) {
+				this.colleges = [];
+			}
+		},
+		// picker 当前选中 index（0=未设置，其余为 colleges+1）
+		getCollegeIndexById(collegeId) {
+			if (!collegeId) return 0;
+			const idx = (this.colleges || []).findIndex(c => Number(c.id) === Number(collegeId));
+			return idx >= 0 ? idx + 1 : 0;
+		},
+		getCollegeNameById(collegeId) {
+			if (!collegeId) return '未设置';
+			const c = (this.colleges || []).find(x => Number(x.id) === Number(collegeId));
+			return c ? c.college_name : '未设置';
+		},
+		handleCollegeChange(e) {
+			const index = (e && e.detail && e.detail.value !== undefined) ? Number(e.detail.value) : 0;
+			if (index <= 0) {
+				this.editForm.college_id = null;
+				return;
+			}
+			const c = (this.colleges || [])[index - 1];
+			this.editForm.college_id = c ? c.id : null;
+		},
+
 		// 兼容 web 和微信小程序的输入处理
 		handleUserNameInput(e) {
 			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
@@ -147,6 +207,10 @@ export default {
 				// 添加角色信息到userInfo中
 				userInfo.roles_name = res.roles_name || [];
 				userInfo.roles_code = res.roles_code || [];
+				// 22300417陈俫坤开发：后端若未返回 college_name，则用学院列表做一次兜底映射
+				if (!userInfo.college_name && userInfo.college_id) {
+					userInfo.college_name = this.getCollegeNameById(userInfo.college_id);
+				}
 				// 保存到本地
 				uni.setStorageSync('userInfo', userInfo);
 				this.userInfo = userInfo;
@@ -192,7 +256,8 @@ export default {
 			// 初始化编辑表单数据
 			this.editForm = {
 				user_name: this.userInfo.user_name || '',
-				user_on: this.userInfo.user_on || ''
+				user_on: this.userInfo.user_on || '',
+				college_id: this.userInfo.college_id || null
 			};
 			// 打开弹窗
 			this.$refs.editPopup.open();
@@ -242,6 +307,7 @@ export default {
 				
 				// 更新本地用户信息
 				this.userInfo = { ...this.userInfo, ...this.editForm };
+				this.userInfo.college_name = this.getCollegeNameById(this.editForm.college_id);
 				uni.setStorageSync('userInfo', this.userInfo);
 				
 				// 关闭弹窗
@@ -401,6 +467,10 @@ export default {
 	color: #C0C4CC;
 }
 
+.arrow::after {
+	content: '>';
+}
+
 /* 退出登录按钮 */
 .logout-btn {
 	width: 90%;
@@ -473,9 +543,8 @@ export default {
 	border: 2rpx solid #E4E7ED;
 	border-radius: 10rpx;
 	padding: 0 20rpx;
-	font-size: 28rpx;
-	color: #333333;
 	box-sizing: border-box;
+	background-color: #F5F7FA;
 }
 
 .popup-footer {

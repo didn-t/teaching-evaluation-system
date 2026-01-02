@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from typing import Optional, List
 
-from sqlalchemy import select
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.base_async import CRUDBaseAsync
-from app.models import User, Role, UserRole, Permission, RolePermission  # 按你的实际路径改
+from app.models import User, Role, UserRole, Permission, RolePermission, SupervisorScope  # 按你的实际路径改
 from app.schemas import TokenData, UserUpdate  # 按你的实际路径改
 
 # 下面这两行按你 auth.py 真实函数名改一下即可：
@@ -81,17 +81,24 @@ class CRUDUser(CRUDBaseAsync[User]):
         res = await db.execute(stmt)
         return res.scalar_one() or 0
 
-    async def get_users_with_roles(self, db: AsyncSession, *, skip: int = 0, limit: int = 20, 
-                                 college_id: Optional[int] = None, max_role_level: Optional[int] = None) -> tuple[List[User], int]:
+    async def get_users_with_roles(
+        self,
+        db: AsyncSession,
+        *,
+        skip: int = 0,
+        limit: int = 20,
+        college_id: Optional[int] = None,
+        max_role_level: Optional[int] = None,
+    ) -> tuple[List[User], int]:
         from sqlalchemy import and_
-        
+
         # 构建查询语句
         stmt = select(User)
-        
+
         # 添加学院过滤
         if college_id is not None:
             stmt = stmt.where(User.college_id == college_id)
-        
+
         # 构建角色等级过滤条件
         if max_role_level is not None:
             # 使用子查询获取用户的最小角色等级
@@ -101,34 +108,36 @@ class CRUDUser(CRUDBaseAsync[User]):
             ).join(Role, UserRole.role_id == Role.id)
             user_role_level_subq = user_role_level_subq.group_by(UserRole.user_id)
             user_role_level_subq = user_role_level_subq.subquery()
-            
+
             # 添加角色等级过滤
-            stmt = stmt.join(
-                user_role_level_subq, 
+            # 22300417陈俫坤开发：使用 outerjoin，避免“没有任何角色的新用户”被过滤掉
+            stmt = stmt.outerjoin(
+                user_role_level_subq,
                 User.id == user_role_level_subq.c.user_id
             )
-            stmt = stmt.where(user_role_level_subq.c.min_role_level <= max_role_level)
-        
+            stmt = stmt.where(or_(user_role_level_subq.c.min_role_level <= max_role_level,
+                                 user_role_level_subq.c.min_role_level.is_(None)))
+
         # 默认排除软删除
         stmt = stmt.where(User.is_delete == False)  # noqa: E712
-        
+
         # 添加排序
         stmt = stmt.order_by(User.id)
-        
+
         # 添加分页
         stmt = stmt.offset(skip).limit(limit)
-        
+
         # 执行查询
         result = await db.execute(stmt)
         items = list(result.scalars().all())
-        
+
         # 计算总数
         count_stmt = select(func.count()).select_from(User)
-        
+
         # 添加相同的过滤条件
         if college_id is not None:
             count_stmt = count_stmt.where(User.college_id == college_id)
-        
+
         if max_role_level is not None:
             # 与上面相同的子查询
             user_role_level_subq = select(
@@ -137,18 +146,20 @@ class CRUDUser(CRUDBaseAsync[User]):
             ).join(Role, UserRole.role_id == Role.id)
             user_role_level_subq = user_role_level_subq.group_by(UserRole.user_id)
             user_role_level_subq = user_role_level_subq.subquery()
-            
-            count_stmt = count_stmt.join(
-                user_role_level_subq, 
+
+            # 22300417陈俫坤开发：outerjoin + 允许空角色用户计入列表统计
+            count_stmt = count_stmt.outerjoin(
+                user_role_level_subq,
                 User.id == user_role_level_subq.c.user_id
             )
-            count_stmt = count_stmt.where(user_role_level_subq.c.min_role_level <= max_role_level)
-        
+            count_stmt = count_stmt.where(or_(user_role_level_subq.c.min_role_level <= max_role_level,
+                                             user_role_level_subq.c.min_role_level.is_(None)))
+
         count_stmt = count_stmt.where(User.is_delete == False)  # noqa: E712
-        
+
         count_result = await db.execute(count_stmt)
         total = count_result.scalar_one()
-        
+
         return items, total
 
     async def authenticate(self, db: AsyncSession, *, user_on: str, plain_password: str) -> Optional[User]:
@@ -180,7 +191,6 @@ class CRUDUser(CRUDBaseAsync[User]):
         return list(res.scalars().all())
 
     async def get_user_permissions(self, db: AsyncSession, *, user_id: int) -> List[str]:
-        # 用子查询拿 role_id，再查 permission_code（你旧代码思路是对的）
         role_ids_subq = select(UserRole.role_id).where(UserRole.user_id == user_id)
 
         stmt = (
@@ -190,6 +200,68 @@ class CRUDUser(CRUDBaseAsync[User]):
         )
         res = await db.execute(stmt)
         return list(res.scalars().all())
+
+
+# ---------------------------
+# 22300417陈俫坤开发：督导负责范围（多学院/多教研组）
+# ---------------------------
+async def get_supervisor_scope_ids(db: AsyncSession, *, supervisor_user_id: int) -> tuple[list[int], list[int]]:
+    """返回 (college_ids, research_room_ids)"""
+    stmt = select(SupervisorScope.scope_type, SupervisorScope.scope_id).where(
+        SupervisorScope.supervisor_user_id == supervisor_user_id,
+        SupervisorScope.is_delete == False,  # noqa: E712
+    )
+    rows = (await db.execute(stmt)).all()
+    college_ids: list[int] = []
+    research_room_ids: list[int] = []
+    for t, sid in rows:
+        if t == "college":
+            college_ids.append(int(sid))
+        elif t == "research_room":
+            research_room_ids.append(int(sid))
+    # 去重
+    college_ids = sorted(list({*college_ids}))
+    research_room_ids = sorted(list({*research_room_ids}))
+    return college_ids, research_room_ids
+
+
+async def set_supervisor_scope_ids(
+    db: AsyncSession,
+    *,
+    supervisor_user_id: int,
+    college_ids: list[int],
+    research_room_ids: list[int],
+) -> None:
+    """幂等设置范围：先软删旧记录，再插入新记录"""
+    # 软删旧记录
+    await db.execute(
+        SupervisorScope.__table__.update()
+        .where(SupervisorScope.supervisor_user_id == supervisor_user_id, SupervisorScope.is_delete == False)  # noqa: E712
+        .values(is_delete=True)
+    )
+
+    # 插入新记录
+    for cid in sorted(list({int(x) for x in (college_ids or [])})):
+        db.add(SupervisorScope(supervisor_user_id=supervisor_user_id, scope_type="college", scope_id=cid, is_delete=False))
+    for rid in sorted(list({int(x) for x in (research_room_ids or [])})):
+        db.add(SupervisorScope(supervisor_user_id=supervisor_user_id, scope_type="research_room", scope_id=rid, is_delete=False))
+
+    await db.commit()
+
+
+async def get_effective_supervisor_scope(
+    db: AsyncSession,
+    *,
+    current_user: TokenData,
+) -> tuple[list[int], list[int]]:
+    """22300417陈俫坤开发：获取督导有效范围（有配置优先，否则回退到 current_user.college_id）"""
+    college_ids, research_room_ids = await get_supervisor_scope_ids(db, supervisor_user_id=current_user.id)
+    if college_ids or research_room_ids:
+        return college_ids, research_room_ids
+    # fallback：兼容旧行为
+    if getattr(current_user, "college_id", None):
+        return [int(current_user.college_id)], []
+    return [], []
 
 
 user_crud = CRUDUser(User)

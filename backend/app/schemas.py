@@ -20,6 +20,8 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     user_name: Optional[str] = None
     college_id: Optional[int] = None
+    # 22300417陈俫坤开发：教师可同时属于学院与教研室（教研室存 teacher_profile.research_room_id）
+    research_room_id: Optional[int] = None
 
 
 class UserResponse(UserBase):
@@ -66,12 +68,14 @@ class CollegeCreate(BaseModel):
     college_name: str = Field(..., max_length=64)
     short_name: Optional[str] = Field(None, max_length=16)
     sort_order: int = 0
+    campus_id: Optional[int] = Field(None, ge=1, le=2, description="校区ID（1-南宁 2-桂林）")
 
 
 class CollegeUpdate(BaseModel):
     college_name: Optional[str] = Field(None, max_length=64)
     short_name: Optional[str] = Field(None, max_length=16)
     sort_order: Optional[int] = None
+    campus_id: Optional[int] = Field(None, ge=1, le=2, description="校区ID（1-南宁 2-桂林）")
     is_delete: Optional[bool] = None
 
 
@@ -140,6 +144,7 @@ class CollegeResponse(BaseModel):
     college_name: str
     short_name: Optional[str] = None
     sort_order: int
+    campus_id: Optional[int] = None
     create_time: datetime
     update_time: Optional[datetime] = None
     is_delete: bool = False
@@ -235,6 +240,7 @@ class TimetableResponse(BaseModel):
     id: int
     college_id: Optional[int] = None
     teacher_id: int
+    teacher_name: Optional[str] = None
     class_id: Optional[int] = None
     class_name: str
     course_code: Optional[str] = None

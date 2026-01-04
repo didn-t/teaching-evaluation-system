@@ -1,0 +1,27 @@
+{
+  "name": "uniapp",
+  "version": "1.0.0",
+  "description": "教学评价系统前端",
+  "main": "main.js",
+  "scripts": {
+    "dev:mp-weixin": "cross-env UNI_PLATFORM=mp-weixin UNI_INPUT_DIR=src npx uni build -p mp-weixin -w -m development --logLevel all",
+    "build:mp-weixin": "cross-env UNI_PLATFORM=mp-weixin UNI_INPUT_DIR=src npx uni build -p mp-weixin -m production"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-4080720251210001",
+    "@dcloudio/uni-components": "3.0.0-4080720251210001",
+    "@dcloudio/uni-mp-weixin": "3.0.0-4080720251210001",
+    "vue": "^3.3.0"
+  },
+  "devDependencies": {
+    "@dcloudio/uni-cli-shared": "3.0.0-4080720251210001",
+    "@dcloudio/vite-plugin-uni": "3.0.0-4080720251210001",
+    "cross-env": "^7.0.3",
+    "sass": "^1.77.0",
+    "vite": "5.2.8"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module"
+}

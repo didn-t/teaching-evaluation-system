@@ -7,7 +7,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.base_async import CRUDBaseAsync
-from app.models import User, Role, UserRole, Permission, RolePermission, SupervisorScope  # 按你的实际路径改
+from app.models import User, Role, UserRole, Permission, RolePermission, SupervisorScope, TeacherProfile  # 按你的实际路径改
 from app.schemas import TokenData, UserUpdate  # 按你的实际路径改
 
 # 下面这两行按你 auth.py 真实函数名改一下即可：
@@ -46,9 +46,27 @@ class CRUDUser(CRUDBaseAsync[User]):
             return None
 
         update_dict = user_data.model_dump(exclude_unset=True)
+
+        # 22300417陈俫坤开发：教师可同时属于学院与教研室（教研室存 teacher_profile.research_room_id）
+        research_room_id = update_dict.pop("research_room_id", None) if "research_room_id" in update_dict else None
         for k, v in update_dict.items():
             if hasattr(user, k):
                 setattr(user, k, v)
+
+        if "research_room_id" in user_data.model_fields_set:
+            # 22300417陈俫坤开发：research_room_id 允许为 None（表示清空教研室）
+            res = await db.execute(
+                select(TeacherProfile).where(
+                    TeacherProfile.user_id == user.id,
+                )
+            )
+            profile = res.scalars().first()
+            if profile is None:
+                profile = TeacherProfile(user_id=user.id, is_delete=False)
+                db.add(profile)
+            else:
+                profile.is_delete = False
+            profile.research_room_id = research_room_id
 
         try:
             await db.commit()

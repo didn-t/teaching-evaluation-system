@@ -1,7 +1,7 @@
 # app/crud/base_async.py
 from __future__ import annotations
 
-from typing import Any, Dict, Generic, List, Optional, Sequence, Type, TypeVar, Union
+from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, Union
 
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
@@ -29,13 +29,17 @@ class CRUDBaseAsync(Generic[ModelType]):
         db: AsyncSession,
         *,
         skip: int = 0,
-        limit: int = 20,
-        filters: Optional[Sequence[Any]] = None,
-        order_by: Optional[Sequence[Any]] = None,
+        limit: int = 100,
+        filters: Optional[List[Any]] = None,
+        order_by: Optional[List[Any]] = None,
         include_deleted: bool = False,
+        options: Optional[List[Any]] = None,
     ) -> tuple[List[ModelType], int]:
         # 构建查询语句
         stmt = select(self.model)
+        if options:
+            for opt in options:
+                stmt = stmt.options(opt)
 
         # 添加过滤条件
         if filters:

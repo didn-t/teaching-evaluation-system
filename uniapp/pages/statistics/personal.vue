@@ -1,113 +1,166 @@
 <template>
 	<view class="personal-statistics-container">
-		<!-- 22300417陈俫坤开发：个人统计拆分为“我收到的评教”(授课被评) 和 “我提交的评教”(听课评教) -->
+		<!-- 22300417陈俫坤开发：个人统计拆分为"教师听课记录" 和 "教师被听记录" -->
 		<view class="mode-tabs">
-			<view class="mode-tab" :class="mode === 'received' ? 'active' : ''" @tap="switchMode('received')">我收到的评教</view>
-			<view class="mode-tab" :class="mode === 'submitted' ? 'active' : ''" @tap="switchMode('submitted')">我提交的评教</view>
+			<view class="mode-tab" :class="mode === 'listen' ? 'active' : ''" @tap="switchMode('listen')">教师听课记录</view>
+			<view class="mode-tab" :class="mode === 'received' ? 'active' : ''" @tap="switchMode('received')">教师被听记录</view>
 		</view>
 
-		<!-- 统计概览 -->
-		<view class="overview-section">
+		<!-- 教师听课记录 -->
+		<view class="content-section" v-if="mode === 'listen'">
 			<text class="section-title">评教统计概览</text>
-			
 			<view class="stats-grid">
 				<view class="stat-item">
-					<text class="stat-value">{{ stats.total_evaluations }}</text>
+					<text class="stat-value">{{ listenStats.total || 0 }}</text>
 					<text class="stat-label">总评教次数</text>
 				</view>
-				
 				<view class="stat-item">
-					<!-- 22300417陈俫坤开发：average_score 可能为 undefined/null，避免 toFixed 报错 -->
-					<text class="stat-value">{{ Number(stats.average_score || 0).toFixed(1) }}</text>
+					<text class="stat-value">{{ Number(listenStats.avg_score || 0).toFixed(1) }}</text>
 					<text class="stat-label">平均评分</text>
 				</view>
-				
-				<view class="stat-item">
-					<text class="stat-value">{{ stats.valid_evaluations }}</text>
-					<text class="stat-label">有效评教</text>
-				</view>
-				
-				<view class="stat-item">
-					<text class="stat-value">{{ stats.pending_evaluations }}</text>
-					<text class="stat-label">待审核</text>
-				</view>
 			</view>
-		</view>
-		
-		<!-- 筛选条件 -->
-		<view class="filter-section">
-			<view class="filter-row">
-				<view class="filter-item">
-					<text class="filter-label">学年</text>
-					<view class="filter-input">
-						<input 
-							:value="filter.academic_year" 
-							placeholder="如：2024-2025" 
-							class="input"
-							placeholder-class="placeholder"
-							@input="handleAcademicYearInput"
-						/>
+
+			<!-- 筛选条件 -->
+			<view class="filter-section">
+				<view class="filter-row">
+					<view class="filter-item">
+						<text class="filter-label">教师</text>
+						<input class="filter-input" :value="filterTeacher" placeholder="教师姓名" @input="e => filterTeacher = e.detail.value" />
+					</view>
+					<view class="filter-item">
+						<text class="filter-label">课程</text>
+						<input class="filter-input" :value="filterCourse" placeholder="课程名称" @input="e => filterCourse = e.detail.value" />
 					</view>
 				</view>
-				
-				<view class="filter-item">
-					<text class="filter-label">学期</text>
-					<view class="filter-select">
-						<picker 
-							:value="getSemesterIndex()" 
-							:range="semesterOptions" 
-							:range-key="'label'"
-							@change="handleSemesterChange"
-						>
-							<view class="picker-text">
-								{{ getSelectedSemesterLabel() }}
-							</view>
+				<view class="filter-row">
+					<view class="filter-item" style="flex: 1;">
+						<text class="filter-label">评分筛选</text>
+						<picker mode="selector" :range="scoreFilterOptions" :value="filterScoreIndex" @change="handleScoreFilterChange">
+							<view class="filter-picker">{{ scoreFilterOptions[filterScoreIndex] }}</view>
 						</picker>
 					</view>
 				</view>
+				<button class="query-btn" @tap="queryListenStats">查询</button>
 			</view>
-			
-			<button @tap="getStatistics" class="query-btn">
-				查询
-			</button>
-		</view>
-		
-		<!-- 评分趋势 -->
-		<view class="trend-section">
-			<text class="section-title">评分趋势</text>
-			
-			<view class="trend-chart" v-if="stats.trend_data && stats.trend_data.length > 0">
-				<!-- 这里可以根据需要实现评分趋势图，目前用简单的列表展示 -->
-				<view class="trend-item" v-for="(item, index) in stats.trend_data" :key="index">
-					<text class="trend-label">{{ item.label }}</text>
-					<view class="trend-bar-container">
-						<view class="trend-bar" :style="{ width: getBarWidth(item.score) + '%' }"></view>
+
+			<!-- 评分趋势 -->
+			<view class="trend-section" v-if="listenStats.trend_data && listenStats.trend_data.length">
+				<text class="section-title">评分趋势</text>
+				<view class="trend-list">
+					<view class="trend-item" v-for="(t, idx) in listenStats.trend_data" :key="idx">
+						<text class="trend-month">{{ t.month }}</text>
+						<text class="trend-score">{{ Number(t.avg_score || 0).toFixed(1) }}</text>
 					</view>
-					<text class="trend-score">{{ item.score }}分</text>
 				</view>
 			</view>
-			
 			<view class="empty-state" v-else>
 				<text class="empty-text">暂无评分趋势数据</text>
 			</view>
 		</view>
-		
-		<!-- 各维度评分 -->
-		<view class="dimensions-section">
-			<text class="section-title">各维度评分</text>
-			
-			<view class="dimension-scores" v-if="stats.dimension_scores && stats.dimension_scores.length > 0">
-				<view class="dimension-item" v-for="(item, index) in stats.dimension_scores" :key="index">
-					<text class="dimension-name">{{ item.dimension_name }}</text>
-					<view class="dimension-bar-container">
-						<view class="dimension-bar" :style="{ width: item.score + '%' }"></view>
-					</view>
-					<text class="dimension-score">{{ item.score }}分</text>
+
+		<!-- 教师被听记录 -->
+		<view class="content-section" v-if="mode === 'received'">
+			<text class="section-title">评教统计概览</text>
+			<view class="stats-grid">
+				<view class="stat-item">
+					<text class="stat-value">{{ receivedStats.total || 0 }}</text>
+					<text class="stat-label">总评教次数</text>
+				</view>
+				<view class="stat-item">
+					<text class="stat-value">{{ Number(receivedStats.avg_score || 0).toFixed(1) }}</text>
+					<text class="stat-label">平均评分</text>
 				</view>
 			</view>
-			
-			<view class="empty-state" v-else>
-				<text class="empty-text">暂无维度评分数据</text>
+
+			<!-- 筛选条件 -->
+			<view class="filter-section">
+				<view class="filter-row">
+					<view class="filter-item">
+						<text class="filter-label">教师</text>
+						<input class="filter-input" :value="filterTeacher2" placeholder="评教人姓名" @input="e => filterTeacher2 = e.detail.value" />
+					</view>
+					<view class="filter-item">
+						<text class="filter-label">课程</text>
+						<input class="filter-input" :value="filterCourse2" placeholder="课程名称" @input="e => filterCourse2 = e.detail.value" />
+					</view>
+				</view>
+				<view class="filter-row">
+					<view class="filter-item" style="flex: 1;">
+						<text class="filter-label">评分筛选</text>
+						<picker mode="selector" :range="scoreFilterOptions" :value="filterScoreIndex2" @change="handleScoreFilterChange2">
+							<view class="filter-picker">{{ scoreFilterOptions[filterScoreIndex2] }}</view>
+						</picker>
+					</view>
+				</view>
+				<button class="query-btn" @tap="queryReceivedStats">查询</button>
+			</view>
+
+			<!-- 评分趋势 -->
+			<view class="trend-section-box">
+				<text class="section-title">评分趋势</text>
+				<view class="trend-bar-list" v-if="receivedStats.trend_data && receivedStats.trend_data.length">
+					<view class="trend-bar-item" v-for="(t, idx) in receivedStats.trend_data" :key="idx">
+						<text class="trend-bar-month">{{ t.month }}</text>
+						<view class="trend-bar-container">
+							<view class="trend-bar" :style="{ width: (t.avg_score || 0) + '%' }"></view>
+						</view>
+						<text class="trend-bar-score">{{ Number(t.avg_score || 0).toFixed(0) }}分</text>
+					</view>
+				</view>
+				<view class="empty-state" v-else>
+					<text class="empty-text">暂无评分趋势数据</text>
+				</view>
+			</view>
+
+			<!-- 各维度评分 -->
+			<view class="dimension-section-box">
+				<text class="section-title">各维度评分</text>
+				<view class="dimension-bar-list" v-if="receivedStats.dimension_scores && receivedStats.dimension_scores.length">
+					<view class="dimension-bar-item" v-for="(d, idx) in receivedStats.dimension_scores" :key="idx">
+						<text class="dimension-bar-name">{{ d.dimension_name }}</text>
+						<view class="dimension-bar-container">
+							<view class="dimension-bar" :style="{ width: getDimensionPercent(d) + '%' }"></view>
+						</view>
+						<text class="dimension-bar-score">{{ Number(d.score || 0).toFixed(1) }}分</text>
+					</view>
+				</view>
+				<view class="empty-state" v-else>
+					<text class="empty-text">暂无维度评分数据</text>
+				</view>
+			</view>
+
+			<!-- 评教记录列表 -->
+			<view class="eval-list-section">
+				<text class="section-title">评教记录</text>
+				<view class="eval-list" v-if="receivedStats.records && receivedStats.records.length">
+					<view class="eval-card" v-for="(record, idx) in receivedStats.records" :key="idx">
+						<view class="eval-header">
+							<text class="eval-course">{{ record.course_name }}</text>
+							<text class="eval-score">{{ record.total_score }}分</text>
+						</view>
+						<view class="eval-info">
+							<text class="eval-listener">评教人：{{ record.listen_teacher_name || '匿名' }}</text>
+							<text class="eval-time">{{ record.eval_time }}</text>
+						</view>
+						<!-- 各维度评分详情 -->
+						<view class="eval-dimensions" v-if="record.dimensions && record.dimensions.length">
+							<view class="eval-dim-item" v-for="(dim, dIdx) in record.dimensions" :key="dIdx">
+								<text class="dim-name">{{ dim.name }}</text>
+								<text class="dim-score">{{ dim.score }}分</text>
+							</view>
+						</view>
+						<view class="eval-comment" v-if="record.comment">
+							<text class="comment-label">评语：</text>
+							<text class="comment-text">{{ record.comment }}</text>
+						</view>
+						<view class="eval-level" v-if="record.level">
+							<text class="level-tag" :class="'level-' + record.level">{{ record.level }}</text>
+						</view>
+					</view>
+				</view>
+				<view class="empty-state" v-else>
+					<text class="empty-text">暂无评教记录</text>
+				</view>
 			</view>
 		</view>
 	</view>
@@ -120,124 +173,170 @@ export default {
 	name: 'personal-statistics',
 	data() {
 		return {
-			// 22300417陈俫坤开发：统计模式 received=我收到的评教（授课被评）；submitted=我提交的评教（听课评教）
-			mode: 'received',
-			// 统计数据
-			stats: {
-				total_evaluations: 0,
-				average_score: 0,
-				valid_evaluations: 0,
-				pending_evaluations: 0,
+			// 22300417陈俫坤开发：统计模式 listen=教师听课记录；received=教师被听记录
+			mode: 'listen',
+			// 教师听课记录统计
+			listenStats: {
+				total: 0,
+				avg_score: 0,
+				trend_data: []
+			},
+			// 教师被听记录统计
+			receivedStats: {
+				total: 0,
+				avg_score: 0,
 				trend_data: [],
-				dimension_scores: []
+				dimension_scores: [],
+				records: []
 			},
-			// 筛选条件
-			filter: {
-				academic_year: '',
-				semester: null
-			},
-			// 学期选项
-			semesterOptions: [
-				{ label: '全部', value: null },
-				{ label: '春季', value: 1 },
-				{ label: '秋季', value: 2 }
-			],
+			// 听课记录筛选条件
+			filterTeacher: '',
+			filterCourse: '',
+			filterScoreIndex: 0,
+			// 被听记录筛选条件
+			filterTeacher2: '',
+			filterCourse2: '',
+			filterScoreIndex2: 0,
+			// 评分筛选选项
+			scoreFilterOptions: ['全部', '高分(≥80)', '低分(<60)'],
 			// 加载状态
 			loading: false
 		};
 	},
 	onLoad() {
-		this.getStatistics();
+		this.queryListenStats();
+	},
+	computed: {
+		// 获取评分筛选值
+		scoreFilter() {
+			if (this.filterScoreIndex === 1) return 'high';
+			if (this.filterScoreIndex === 2) return 'low';
+			return null;
+		},
+		scoreFilter2() {
+			if (this.filterScoreIndex2 === 1) return 'high';
+			if (this.filterScoreIndex2 === 2) return 'low';
+			return null;
+		}
 	},
 	methods: {
 		switchMode(mode) {
-			// 22300417陈俫坤开发：切换“我收到的/我提交的”后刷新统计
+			// 22300417陈俫坤开发：切换Tab后刷新统计
 			this.mode = mode;
-			this.getStatistics();
+			if (mode === 'listen') {
+				this.queryListenStats();
+			} else {
+				this.queryReceivedStats();
+			}
 		},
-		// 兼容 web 和微信小程序的输入处理
-		handleAcademicYearInput(e) {
-			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
-			this.filter.academic_year = value;
+		handleScoreFilterChange(e) {
+			this.filterScoreIndex = Number(e.detail.value);
 		},
-		getSemesterIndex() {
-			const index = this.semesterOptions.findIndex(opt => opt.value === this.filter.semester);
-			return index >= 0 ? index : 0;
+		handleScoreFilterChange2(e) {
+			this.filterScoreIndex2 = Number(e.detail.value);
 		},
-		// 获取个人统计数据
-		async getStatistics() {
+		// 22300417陈俫坤开发：查询教师听课记录统计
+		async queryListenStats() {
 			this.loading = true;
 			try {
-				const url = this.mode === 'submitted' ? '/eval/statistics/listen/me' : '/eval/statistics/teacher/me';
+				const params = {};
+				if (this.filterTeacher) params.teacher_name = this.filterTeacher;
+				if (this.filterCourse) params.course_name = this.filterCourse;
+				if (this.scoreFilter) params.score_filter = this.scoreFilter;
+				
 				const res = await request({
-					url,
+					url: '/eval/statistics/listen/me',
 					method: 'GET',
-					params: {
-						academic_year: this.filter.academic_year || undefined,
-						semester: this.filter.semester || undefined
-					}
+					params
 				});
 				
-				// 22300417陈俫坤开发：对齐后端增强统计字段（trend_data + dimension_scores(含dimension_name) + pending/valid/total）
-				// 这里做一层兼容转换，避免不同版本字段不一致导致 undefined。
 				if (res) {
-					const total = Number(res.total_evaluations ?? res.total_evaluation_num ?? 0);
-					const valid = Number(res.valid_evaluation_num ?? res.valid_evaluations ?? res.total_evaluation_num ?? 0);
-					const pending = Number(res.pending_evaluation_num ?? res.pending_evaluations ?? 0);
-					const avg = Number(res.avg_total_score ?? res.average_score ?? 0);
-					
-					// trend_data：后端增强字段，按月份聚合；没提供则保持空数组
-					const trendData = Array.isArray(res.trend_data) ? res.trend_data : [];
-					
-					// dimension_scores：优先使用后端增强字段（含 dimension_name）；否则兼容旧的 dimension_avg_scores
-					let dimensionScores = Array.isArray(res.dimension_scores) ? res.dimension_scores : [];
-					if (!dimensionScores.length && res.dimension_avg_scores && typeof res.dimension_avg_scores === 'object') {
-						dimensionScores = Object.keys(res.dimension_avg_scores).map(k => ({
-							dimension_name: k,
-							score: Number(res.dimension_avg_scores[k] ?? 0)
-						}));
-					}
-					
-					this.stats = {
-						total_evaluations: total,
-						average_score: avg,
-						valid_evaluations: valid,
-						pending_evaluations: pending,
-						trend_data: trendData,
-						dimension_scores: dimensionScores
+					this.listenStats = {
+						total: res.total_evaluations || res.total || 0,
+						avg_score: res.average_score || res.avg_score || 0,
+						trend_data: res.trend_data || []
 					};
 				}
 			} catch (error) {
-				console.error('获取个人统计数据失败:', error);
-				uni.showToast({
-					title: '获取统计数据失败，请重试',
-					icon: 'none',
-					duration: 2000
-				});
+				console.error('获取听课统计数据失败:', error);
+				uni.showToast({ title: '获取统计数据失败', icon: 'none' });
 			} finally {
 				this.loading = false;
 			}
 		},
-		
-		// 处理学期选择变化
-		handleSemesterChange(e) {
-			// 兼容 web 和微信小程序
-			const index = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e ? e : 0);
-			if (this.semesterOptions && this.semesterOptions[index]) {
-				this.filter.semester = this.semesterOptions[index].value;
+		// 22300417陈俫坤开发：查询教师被听记录统计
+		async queryReceivedStats() {
+			this.loading = true;
+			try {
+				const params = {};
+				if (this.filterTeacher2) params.listener_name = this.filterTeacher2;
+				if (this.filterCourse2) params.course_name = this.filterCourse2;
+				if (this.scoreFilter2) params.score_filter = this.scoreFilter2;
+				
+				// 获取统计数据
+				const res = await request({
+					url: '/eval/statistics/teacher/me',
+					method: 'GET',
+					params
+				});
+				
+				// 获取评教记录列表
+				const recordsRes = await request({
+					url: '/eval/received/me',
+					method: 'GET',
+					params: { ...params, skip: 0, limit: 50 }
+				});
+				
+				// 解析维度评分
+				let dimensionScores = [];
+				if (res && res.dimension_scores && Array.isArray(res.dimension_scores)) {
+					dimensionScores = res.dimension_scores;
+				} else if (res && res.dimension_avg_scores && typeof res.dimension_avg_scores === 'object') {
+					dimensionScores = Object.keys(res.dimension_avg_scores).map(k => ({
+						dimension_name: k,
+						score: Number(res.dimension_avg_scores[k] || 0)
+					}));
+				}
+				
+				if (res) {
+					this.receivedStats = {
+						total: res.total_evaluations || res.total || 0,
+						avg_score: res.average_score || res.avg_score || 0,
+						trend_data: res.trend_data || [],
+						dimension_scores: dimensionScores,
+						records: (recordsRes && recordsRes.list) ? recordsRes.list.map(r => ({
+							course_name: r.course_name || r.timetable?.course_name || '',
+							total_score: r.total_score || 0,
+							listen_teacher_name: r.listen_teacher_name || r.listen_teacher?.user_name || '匿名',
+							eval_time: r.eval_time || r.create_time || '',
+							comment: r.comment || r.overall_comment || '',
+							level: r.level || '',
+							dimensions: r.dimensions || []
+						})) : []
+					};
+				}
+			} catch (error) {
+				console.error('获取被听统计数据失败:', error);
+				uni.showToast({ title: '获取统计数据失败', icon: 'none' });
+			} finally {
+				this.loading = false;
 			}
 		},
-		
-		// 获取选中的学期标签
-		getSelectedSemesterLabel() {
-			const selected = this.semesterOptions.find(item => item.value === this.filter.semester);
-			return selected ? selected.label : '全部';
+		// 22300417陈俫坤开发：维度总分映射
+		getDimensionMax(item) {
+			const key = String(item?.dimension_name || item?.dimension_key || '');
+			if (key.includes('教学态度')) return 20;
+			if (key.includes('教学内容')) return 50;
+			if (key.includes('教学方法')) return 15;
+			if (key.includes('教学效果')) return 15;
+			return 100;
 		},
-		
-		// 获取评分趋势图的bar宽度
-		getBarWidth(score) {
-			// 假设满分是100分，将评分转换为0-100%的宽度
-			return Math.min(score, 100);
+		// 22300417陈俫坤开发：计算维度进度条比例
+		getDimensionPercent(item) {
+			const max = this.getDimensionMax(item);
+			const score = Number(item?.score || 0);
+			if (!max) return 0;
+			return Math.max(0, Math.min(100, (score / max) * 100));
 		}
 	}
 };
@@ -245,269 +344,352 @@ export default {
 
 <style scoped>
 .personal-statistics-container {
-	background-color: #F5F7FA;
-	min-height: 100vh;
-	padding: 30rpx;
+  background-color: #F5F7FA;
+  min-height: 100vh;
+  padding: 30rpx;
 }
-
 .mode-tabs {
-	display: flex;
-	background-color: #FFFFFF;
-	border-radius: 12rpx;
-	overflow: hidden;
-	margin-bottom: 30rpx;
-	box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+  display: flex;
+  background-color: #FFFFFF;
+  border-radius: 12rpx;
+  overflow: hidden;
+  margin-bottom: 30rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
 }
-
 .mode-tab {
-	flex: 1;
-	text-align: center;
-	padding: 22rpx 10rpx;
-	font-size: 28rpx;
-	color: #666666;
-	background-color: #FFFFFF;
+  flex: 1;
+  text-align: center;
+  padding: 22rpx 10rpx;
+  font-size: 28rpx;
+  color: #666666;
+  background-color: #FFFFFF;
 }
-
 .mode-tab.active {
-	color: #FFFFFF;
-	background-color: #3E5C76;
-	font-weight: 600;
+  color: #FFFFFF;
+  background-color: #3E5C76;
+  font-weight: 600;
 }
-
-/* 公共样式 */
 .section-title {
-	font-size: 32rpx;
-	font-weight: bold;
-	color: #333333;
-	margin-bottom: 30rpx;
-	display: block;
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #333333;
+  margin-bottom: 30rpx;
+  display: block;
 }
-
-/* 统计概览 */
-.overview-section {
-	background-color: #FFFFFF;
-	border-radius: 12rpx;
-	padding: 30rpx;
-	margin-bottom: 30rpx;
-	box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
-}
-
 .stats-grid {
-	display: grid;
-	grid-template-columns: repeat(2, 1fr);
-	gap: 20rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20rpx;
 }
-
 .stat-item {
-	background-color: #F5F7FA;
-	border-radius: 12rpx;
-	padding: 30rpx;
-	display: flex;
-	flex-direction: column;
-	justify-content: center;
-	align-items: center;
+  flex: 1;
+  min-width: 45%;
+  background-color: #F5F7FA;
+  border-radius: 12rpx;
+  padding: 30rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
-
 .stat-value {
-	font-size: 48rpx;
-	font-weight: bold;
-	color: #3E5C76;
-	margin-bottom: 10rpx;
+  font-size: 48rpx;
+  font-weight: bold;
+  color: #3E5C76;
+  margin-bottom: 10rpx;
 }
-
 .stat-label {
-	font-size: 24rpx;
-	color: #666666;
+  font-size: 24rpx;
+  color: #666666;
 }
-
-/* 筛选条件 */
 .filter-section {
-	background-color: #FFFFFF;
-	border-radius: 12rpx;
-	padding: 30rpx;
-	margin-bottom: 30rpx;
-	box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+  background-color: #FFFFFF;
+  border-radius: 12rpx;
+  padding: 30rpx;
+  margin-bottom: 30rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
 }
-
 .filter-row {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	gap: 20rpx;
-	margin-bottom: 30rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20rpx;
+  margin-bottom: 30rpx;
 }
-
 .filter-item {
-	flex: 1;
+  flex: 1;
 }
-
 .filter-label {
-	display: block;
-	font-size: 28rpx;
-	color: #333333;
-	font-weight: 500;
-	margin-bottom: 15rpx;
+  display: block;
+  font-size: 28rpx;
+  color: #333333;
+  font-weight: 500;
+  margin-bottom: 15rpx;
 }
-
-.filter-input .input {
-	width: 100%;
-	height: 80rpx;
-	border: 2rpx solid #E4E7ED;
-	border-radius: 8rpx;
-	padding: 0 20rpx;
-	font-size: 28rpx;
-	color: #333333;
-	background-color: #F5F7FA;
+.filter-input {
+  width: 100%;
+  height: 80rpx;
+  border: 2rpx solid #E4E7ED;
+  border-radius: 8rpx;
+  padding: 0 20rpx;
+  font-size: 28rpx;
+  color: #333333;
+  background-color: #F5F7FA;
 }
-
-.placeholder {
-	color: #C0C4CC;
+.filter-picker {
+  height: 80rpx;
+  line-height: 80rpx;
+  border: 2rpx solid #E4E7ED;
+  border-radius: 8rpx;
+  padding: 0 20rpx;
+  font-size: 28rpx;
+  color: #333333;
+  background-color: #F5F7FA;
 }
-
-.filter-select {
-	height: 80rpx;
-	border: 2rpx solid #E4E7ED;
-	border-radius: 8rpx;
-	padding: 0 20rpx;
-	background-color: #F5F7FA;
-	display: flex;
-	justify-content: center;
-	align-items: center;
-}
-
-.picker-text {
-	font-size: 28rpx;
-	color: #333333;
-}
-
 .query-btn {
-	width: 100%;
-	height: 88rpx;
-	background-color: #3E5C76;
-	color: #FFFFFF;
-	font-size: 32rpx;
-	font-weight: bold;
-	border-radius: 44rpx;
+  width: 100%;
+  height: 88rpx;
+  background-color: #3E5C76;
+  color: #FFFFFF;
+  font-size: 32rpx;
+  font-weight: bold;
+  border-radius: 44rpx;
 }
-
 .query-btn::after {
-	border: none;
+  border: none;
 }
-
-.query-btn:active {
-	background-color: #2D455A;
-}
-
-/* 评分趋势 */
 .trend-section {
-	background-color: #FFFFFF;
-	border-radius: 12rpx;
-	padding: 30rpx;
-	margin-bottom: 30rpx;
-	box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+  background-color: #FFFFFF;
+  border-radius: 12rpx;
+  padding: 30rpx;
+  margin-bottom: 30rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
 }
-
-.trend-chart {
-	/* 趋势图容器 */
+.trend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
 }
-
 .trend-item {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	margin-bottom: 20rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20rpx;
 }
-
-.trend-item:last-child {
-	margin-bottom: 0;
+.trend-month {
+  font-size: 26rpx;
+  color: #666666;
 }
-
-.trend-label {
-	width: 120rpx;
-	font-size: 26rpx;
-	color: #666666;
-}
-
-.trend-bar-container {
-	flex: 1;
-	height: 20rpx;
-	background-color: #F5F7FA;
-	border-radius: 10rpx;
-	margin: 0 20rpx;
-	overflow: hidden;
-}
-
-.trend-bar {
-	height: 100%;
-	background-color: #3E5C76;
-	border-radius: 10rpx;
-}
-
 .trend-score {
-	width: 80rpx;
-	font-size: 28rpx;
-	font-weight: bold;
-	color: #3E5C76;
-	text-align: right;
+  width: 80rpx;
+  font-size: 28rpx;
+  font-weight: bold;
+  color: #3E5C76;
+  text-align: right;
 }
-
-/* 各维度评分 */
-.dimensions-section {
-	background-color: #FFFFFF;
-	border-radius: 12rpx;
-	padding: 30rpx;
-	margin-bottom: 30rpx;
-	box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
-}
-
-.dimension-item {
-	margin-bottom: 30rpx;
-}
-
-.dimension-item:last-child {
-	margin-bottom: 0;
-}
-
-.dimension-name {
-	display: block;
-	font-size: 28rpx;
-	color: #333333;
-	font-weight: 500;
-	margin-bottom: 15rpx;
-}
-
-.dimension-bar-container {
-	height: 30rpx;
-	background-color: #F5F7FA;
-	border-radius: 15rpx;
-	margin-bottom: 10rpx;
-	overflow: hidden;
-}
-
-.dimension-bar {
-	height: 100%;
-	background-color: #3E5C76;
-	border-radius: 15rpx;
-}
-
-.dimension-score {
-	display: block;
-	font-size: 32rpx;
-	font-weight: bold;
-	color: #3E5C76;
-	text-align: right;
-}
-
-/* 空状态 */
 .empty-state {
-	display: flex;
-	justify-content: center;
-	align-items: center;
-	padding: 80rpx 0;
-	color: #999999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 80rpx 0;
+  color: #999999;
 }
-
 .empty-text {
-	font-size: 28rpx;
+  font-size: 28rpx;
+}
+.content-section {
+  background-color: transparent;
+}
+.content-section .section-title {
+  font-size: 28rpx;
+  font-weight: bold;
+  color: #333333;
+  margin-bottom: 20rpx;
+  display: block;
+}
+.content-section .stats-grid {
+  background-color: #FFFFFF;
+  border-radius: 12rpx;
+  padding: 30rpx;
+  margin-bottom: 30rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+}
+.trend-section-box {
+  background-color: #FFFFFF;
+  border-radius: 12rpx;
+  padding: 30rpx;
+  margin-bottom: 30rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+}
+.trend-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+.trend-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+.trend-bar-month {
+  width: 140rpx;
+  font-size: 26rpx;
+  color: #666666;
+  flex-shrink: 0;
+}
+.trend-bar-container {
+  flex: 1;
+  height: 24rpx;
+  background-color: #F5F7FA;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+.trend-bar {
+  height: 100%;
+  background-color: #3E5C76;
+  border-radius: 12rpx;
+}
+.trend-bar-score {
+  width: 80rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #3E5C76;
+  text-align: right;
+  flex-shrink: 0;
+}
+.dimension-section-box {
+  background-color: #FFFFFF;
+  border-radius: 12rpx;
+  padding: 30rpx;
+  margin-bottom: 30rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+}
+.dimension-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+.dimension-bar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.dimension-bar-name {
+  font-size: 28rpx;
+  color: #333333;
+  font-weight: 500;
+}
+.dimension-bar-container {
+  height: 24rpx;
+  background-color: #F5F7FA;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+.dimension-bar {
+  height: 100%;
+  background-color: #3E5C76;
+  border-radius: 12rpx;
+}
+.dimension-bar-score {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #3E5C76;
+  text-align: right;
+}
+.eval-list-section {
+  margin-top: 30rpx;
+}
+.eval-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+.eval-card {
+  background-color: #FFFFFF;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+}
+.eval-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+.eval-course {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #333333;
+}
+.eval-score {
+  font-size: 32rpx;
+  font-weight: bold;
+  color: #3E5C76;
+}
+.eval-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+.eval-listener {
+  font-size: 26rpx;
+  color: #666666;
+}
+.eval-time {
+  font-size: 24rpx;
+  color: #999999;
+}
+.eval-dimensions {
+  background-color: #F5F7FA;
+  border-radius: 8rpx;
+  padding: 16rpx;
+  margin-bottom: 12rpx;
+}
+.eval-dim-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8rpx 0;
+  border-bottom: 1rpx solid #E4E7ED;
+}
+.eval-dim-item:last-child {
+  border-bottom: none;
+}
+.dim-name {
+  font-size: 26rpx;
+  color: #666666;
+}
+.dim-score {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #3E5C76;
+}
+.eval-comment {
+  background-color: #F5F7FA;
+  border-radius: 8rpx;
+  padding: 16rpx;
+  margin-bottom: 12rpx;
+}
+.comment-label {
+  font-size: 26rpx;
+  color: #666666;
+  font-weight: 500;
+}
+.comment-text {
+  font-size: 26rpx;
+  color: #333333;
+  line-height: 1.6;
+}
+.eval-level {
+  display: flex;
+  justify-content: flex-end;
+}
+.level-tag {
+  font-size: 24rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 20rpx;
+  background-color: #E8F4FD;
+  color: #3E5C76;
 }
 </style>

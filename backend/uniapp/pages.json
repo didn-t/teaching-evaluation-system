@@ -1,0 +1,187 @@
+{
+	"pages": [
+		{
+			"path": "pages/login/login",
+			"style": {
+				"navigationBarTitleText": "登录",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white",
+				"enablePullDownRefresh": false
+			}
+		},
+		{
+			"path": "pages/register/register",
+			"style": {
+				"navigationBarTitleText": "注册",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white",
+				"enablePullDownRefresh": false
+			}
+		},
+		{
+			"path": "pages/index/index",
+			"style": {
+				"navigationBarTitleText": "教学评教系统",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/profile/profile",
+			"style": {
+				"navigationBarTitleText": "个人信息",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/password/change-password",
+			"style": {
+				"navigationBarTitleText": "修改密码",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/timetable/timetable",
+			"style": {
+				"navigationBarTitleText": "我的课表",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/evaluation/submit",
+			"style": {
+				"navigationBarTitleText": "提交评教",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/evaluation/my-evaluations",
+			"style": {
+				"navigationBarTitleText": "我的评教",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/evaluation/received-evaluations",
+			"style": {
+				"navigationBarTitleText": "收到的评教",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/evaluation/detail",
+			"style": {
+				"navigationBarTitleText": "评教详情",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/evaluation/pending-courses",
+			"style": {
+				"navigationBarTitleText": "待评课程",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/evaluation/completed-courses",
+			"style": {
+				"navigationBarTitleText": "已评课程",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/statistics/personal",
+			"style": {
+				"navigationBarTitleText": "个人统计",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/admin/user-management",
+			"style": {
+				"navigationBarTitleText": "用户管理",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/admin/evaluation-review",
+			"style": {
+				"navigationBarTitleText": "评教审核",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/admin/statistics",
+			"style": {
+				"navigationBarTitleText": "统计分析",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/admin/college-management",
+			"style": {
+				"navigationBarTitleText": "学院管理",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/admin/course-status-management",
+			"style": {
+				"navigationBarTitleText": "课程状态管理",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "white",
+		"navigationBarTitleText": "教学评教系统",
+		"navigationBarBackgroundColor": "#3E5C76",
+		"backgroundColor": "#F5F7FA",
+		"enablePullDownRefresh": true,
+		"backgroundTextStyle": "dark"
+	},
+	"tabBar": {
+		"color": "#999999",
+		"selectedColor": "#3E5C76",
+		"backgroundColor": "#FFFFFF",
+		"borderStyle": "black",
+		"list": [
+			{
+				"pagePath": "pages/index/index",
+				"text": "首页"
+			},
+			{
+				"pagePath": "pages/timetable/timetable",
+				"text": "课表"
+			},
+			{
+				"pagePath": "pages/evaluation/my-evaluations",
+				"text": "我的评教"
+			},
+			{
+				"pagePath": "pages/statistics/personal",
+				"text": "统计"
+			},
+			{
+				"pagePath": "pages/profile/profile",
+				"text": "我的"
+			}
+		]
+	},
+	"uniIdRouter": {}
+}

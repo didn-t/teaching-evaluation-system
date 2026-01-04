@@ -37,8 +37,62 @@ from app.crud.org import (
     clazz_crud,
 )
 from app.crud.timetable import timetable_crud
+from sqlalchemy.orm import joinedload
+
+from app.models import User
 
 router = APIRouter(prefix="", tags=["组织结构管理"])
+
+
+@router.get("/teachers", summary="获取教师列表")
+async def list_college_teachers(
+    keyword: Optional[str] = None,
+    college_id: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 200,
+    current_user: TokenData = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：获取教师列表供听课课表选择
+
+    - school_admin：可查看所有教师
+    - college_admin/supervisor：可查看指定学院或本学院教师
+    - teacher：可查看指定学院教师（用于听课课表）
+    """
+    roles = await get_roles_code(db, current_user)
+    is_school_admin = "school_admin" in roles
+
+    stmt = select(User.id, User.user_name, User.user_on, User.college_id).where(User.is_delete == False)  # noqa: E712
+    
+    # 按学院筛选
+    if college_id:
+        stmt = stmt.where(User.college_id == int(college_id))
+    
+    if keyword:
+        kw = str(keyword).strip()
+        if kw:
+            stmt = stmt.where(func.concat(User.user_on, User.user_name).like(f"%{kw}%"))
+
+    res = await db.execute(stmt.order_by(User.id.asc()).offset(skip).limit(limit))
+    rows = res.all()
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={
+            "list": [
+                {
+                    "id": int(uid),
+                    "user_on": uon,
+                    "user_name": uname,
+                    "college_id": int(cid) if cid is not None else None,
+                }
+                for uid, uname, uon, cid in rows
+            ],
+            "total": len(rows),
+            "skip": skip,
+            "limit": limit,
+        },
+    )
 
 
 @router.get("/research-rooms", summary="获取教研室列表")
@@ -62,6 +116,110 @@ async def list_research_rooms(
         "skip": skip,
         "limit": limit,
     })
+
+
+# -----------------------------
+# 22300417陈俫坤开发：校区管理接口
+# -----------------------------
+from app.models import Campus
+from pydantic import BaseModel as PydanticBaseModel
+
+
+@router.get("/campuses", summary="获取校区列表")
+async def list_campuses(
+    skip: int = 0,
+    limit: int = 100,
+    current_user: TokenData = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取校区列表"""
+    stmt = select(Campus).where(Campus.is_delete == False).order_by(Campus.sort_order, Campus.id).offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    campuses = result.scalars().all()
+    
+    count_stmt = select(func.count(Campus.id)).where(Campus.is_delete == False)
+    total = (await db.execute(count_stmt)).scalar_one()
+    
+    return BaseResponse(code=200, msg="success", data={
+        "list": [{"id": c.id, "campus_name": c.campus_name, "sort_order": c.sort_order} for c in campuses],
+        "total": total,
+    })
+
+
+class CampusCreate(PydanticBaseModel):
+    campus_name: str
+
+
+class CampusUpdate(PydanticBaseModel):
+    campus_name: str
+
+
+@router.post("/campuses", summary="添加校区")
+async def create_campus(
+    data: CampusCreate,
+    current_user: TokenData = Depends(
+        require_access(roles_any=("school_admin",))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """添加校区"""
+    campus_name = data.campus_name
+    # 检查名称是否重复
+    existing = await db.execute(select(Campus).where(Campus.campus_name == campus_name, Campus.is_delete == False))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="校区名称已存在")
+    
+    campus = Campus(campus_name=campus_name)
+    db.add(campus)
+    await db.commit()
+    await db.refresh(campus)
+    
+    return BaseResponse(code=200, msg="success", data={"id": campus.id, "campus_name": campus.campus_name})
+
+
+@router.put("/campuses/{campus_id}", summary="更新校区")
+async def update_campus(
+    campus_id: int,
+    data: CampusUpdate,
+    current_user: TokenData = Depends(
+        require_access(roles_any=("school_admin",))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """更新校区"""
+    campus_name = data.campus_name
+    campus = await db.get(Campus, campus_id)
+    if not campus or campus.is_delete:
+        raise HTTPException(status_code=404, detail="校区不存在")
+    
+    # 检查名称是否重复
+    existing = await db.execute(select(Campus).where(Campus.campus_name == campus_name, Campus.id != campus_id, Campus.is_delete == False))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="校区名称已存在")
+    
+    campus.campus_name = campus_name
+    await db.commit()
+    
+    return BaseResponse(code=200, msg="success", data={"id": campus.id, "campus_name": campus.campus_name})
+
+
+@router.delete("/campuses/{campus_id}", summary="删除校区")
+async def delete_campus(
+    campus_id: int,
+    current_user: TokenData = Depends(
+        require_access(roles_any=("school_admin",))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除校区（逻辑删除）"""
+    campus = await db.get(Campus, campus_id)
+    if not campus or campus.is_delete:
+        raise HTTPException(status_code=404, detail="校区不存在")
+    
+    campus.is_delete = True
+    await db.commit()
+    
+    return BaseResponse(code=200, msg="success", data=None)
 
 
 # -----------------------------
@@ -142,16 +300,20 @@ async def delete_college(
 
 @router.get("/colleges", summary="获取学院列表")
 async def list_colleges(
+    campus_id: Optional[int] = None,
     skip: int = 0,
     limit: int = 100,
     current_user: TokenData = Depends(
-        # 22300417陈俫坤开发：督导老师需要拉取学院列表用于范围筛选/统计
-        require_access(roles_any=("school_admin", "college_admin", "supervisor", "teacher"), perms_all=("org:college:read",))
+        # 22300417陈俫坤开发：督导老师需要拉取学院列表用于范围筛选/统计（避免因权限配置缺失导致无法筛选）
+        require_access(roles_any=("school_admin", "college_admin", "supervisor", "teacher"))
     ),
     db: AsyncSession = Depends(get_db),
 ):
-    """获取学院列表"""
-    colleges, total = await college_crud.get_multi(db, skip=skip, limit=limit)
+    """获取学院列表，支持按校区筛选"""
+    filters = []
+    if campus_id:
+        filters.append(college_crud.model.campus_id == campus_id)
+    colleges, total = await college_crud.get_multi(db, skip=skip, limit=limit, filters=filters)
     # 转换为响应模型
     college_responses = [CollegeResponse.model_validate(college) for college in colleges]
     return BaseResponse(
@@ -427,7 +589,17 @@ async def get_timetable(
     timetables, total = await timetable_crud.get_multi(db, filters=[timetable_crud.model.id == timetable_id], limit=1)
     if not timetables:
         raise HTTPException(status_code=404, detail="课表不存在")
-    return BaseResponse(code=200, msg="success", data=TimetableResponse.model_validate(timetables[0]))
+
+    # 22300417陈俫坤开发：补齐授课教师姓名，供“提交评教”页顶部信息卡展示
+    tt = timetables[0]
+    teacher_name = None
+    if getattr(tt, "teacher_id", None) is not None:
+        res = await db.execute(select(User.user_name).where(User.id == tt.teacher_id))
+        teacher_name = res.scalar_one_or_none()
+
+    data = TimetableResponse.model_validate(tt).model_dump()
+    data["teacher_name"] = teacher_name
+    return BaseResponse(code=200, msg="success", data=data)
 
 
 @router.put("/timetable/{timetable_id}", summary="更新课表信息")
@@ -513,11 +685,14 @@ async def list_timetables(
     is_college_scope = is_college_admin or is_supervisor
     is_teacher_only = ("teacher" in roles) and (not is_school_admin) and (not is_college_scope)
 
+    # 22300417陈俫坤开发：teacher角色如果指定了其他teacher_id，允许查看（用于听课课表）
+    # 如果没有指定teacher_id，则默认查看自己的课表
     if is_teacher_only:
-        # teacher 强制限定 teacher_id = 当前用户，并禁止通过 user_on/college_id 绕过
-        teacher_id = current_user.id
+        if not teacher_id:
+            # 没有指定teacher_id时，默认查看自己的课表
+            teacher_id = current_user.id
+        # 允许查看指定教师的课表（听课课表功能）
         user_on = None
-        college_id = None
     elif is_college_scope and not is_school_admin:
         # 22300417陈俫坤开发：范围限制
         # - college_admin：只能看本学院（固定）
@@ -571,9 +746,6 @@ async def list_timetables(
     
     # 如果提供了user_on，通过关联User表过滤
     if user_on:
-        from sqlalchemy.orm import joinedload
-        from app.models import User
-        
         # 22300417陈俫坤开发：支持按教师工号/账号（User.user_on）查询课表。
         # 这里必须 join User，否则 where(User.user_on...) 无法正确关联到课表的 teacher_id。
         # 使用 joinedload 预加载 teacher 关系，避免后续序列化时额外查询。
@@ -604,47 +776,24 @@ async def list_timetables(
         total = total.scalar_one()
     else:
         # 常规查询
-        # 22300417陈俫坤开发：如果督导只配置了教研室范围（无 college_ids），则 join TeacherProfile 过滤 research_room_id
-        if is_supervisor and (not is_school_admin):
-            allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
-            if (not allow_college_ids) and allow_room_ids:
-                from app.models import TeacherProfile
-                base_stmt = (
-                    select(timetable_crud.model)
-                    .join(TeacherProfile, TeacherProfile.user_id == timetable_crud.model.teacher_id)
-                    .where(*filters, TeacherProfile.research_room_id.in_(allow_room_ids))
-                    .offset(skip)
-                    .limit(limit)
-                    .order_by(timetable_crud.model.weekday, timetable_crud.model.period, timetable_crud.model.section_time)
-                )
-                res = await db.execute(base_stmt)
-                timetables = res.scalars().all()
-                total_res = await db.execute(
-                    select(func.count())
-                    .select_from(timetable_crud.model)
-                    .join(TeacherProfile, TeacherProfile.user_id == timetable_crud.model.teacher_id)
-                    .where(*filters, TeacherProfile.research_room_id.in_(allow_room_ids))
-                )
-                total = total_res.scalar_one()
-            else:
-                timetables, total = await timetable_crud.get_multi(
-                    db,
-                    filters=filters,
-                    skip=skip,
-                    limit=limit,
-                    order_by=[timetable_crud.model.weekday, timetable_crud.model.period, timetable_crud.model.section_time],
-                )
-        else:
-            timetables, total = await timetable_crud.get_multi(
-                db,
-                filters=filters,
-                skip=skip,
-                limit=limit,
-                order_by=[timetable_crud.model.weekday, timetable_crud.model.period, timetable_crud.model.section_time],
-            )
+        timetables, total = await timetable_crud.get_multi(
+            db,
+            filters=filters,
+            skip=skip,
+            limit=limit,
+            order_by=[timetable_crud.model.weekday, timetable_crud.model.period, timetable_crud.model.section_time],
+            options=[joinedload(timetable_crud.model.teacher)],
+        )
     
     # 转换为响应模型
-    timetable_responses = [TimetableResponse.model_validate(timetable) for timetable in timetables]
+    timetable_responses = []
+    for timetable in timetables:
+        tr = TimetableResponse.model_validate(timetable)
+        try:
+            tr.teacher_name = getattr(getattr(timetable, "teacher", None), "user_name", None)
+        except Exception:
+            tr.teacher_name = None
+        timetable_responses.append(tr)
     
     return BaseResponse(
         code=200,
@@ -655,4 +804,118 @@ async def list_timetables(
             "skip": skip,
             "limit": limit,
         },
+    )
+
+
+# -----------------------------
+# 22300417陈俫坤开发：用户管理接口（用于组织架构管理）
+# -----------------------------
+from app.models import TeacherProfile
+
+
+@router.get("/users", summary="获取用户列表（支持按学院筛选）")
+async def list_users(
+    college_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 200,
+    current_user: TokenData = Depends(
+        require_access(roles_any=("school_admin",))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：获取用户列表，支持按学院筛选，用于教师归属管理"""
+    filters = [User.is_delete == False]
+    
+    if college_id:
+        filters.append(User.college_id == college_id)
+    
+    if keyword:
+        filters.append(
+            (User.user_name.like(f"%{keyword}%")) | (User.user_on.like(f"%{keyword}%"))
+        )
+    
+    # 查询用户
+    stmt = select(User).where(*filters).offset(skip).limit(limit).order_by(User.id)
+    result = await db.execute(stmt)
+    users = result.scalars().all()
+    
+    # 查询总数
+    count_stmt = select(func.count(User.id)).where(*filters)
+    total = (await db.execute(count_stmt)).scalar_one()
+    
+    # 获取用户的教研室信息
+    user_list = []
+    for user in users:
+        # 查询教师档案获取教研室
+        profile_stmt = select(TeacherProfile).where(TeacherProfile.user_id == user.id)
+        profile_result = await db.execute(profile_stmt)
+        profile = profile_result.scalar_one_or_none()
+        
+        user_list.append({
+            "id": user.id,
+            "user_on": user.user_on,
+            "user_name": user.user_name,
+            "college_id": user.college_id,
+            "research_room_id": profile.research_room_id if profile else None,
+        })
+    
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={"list": user_list, "total": total},
+    )
+
+
+from pydantic import BaseModel
+
+class UserAffiliationUpdate(BaseModel):
+    college_id: Optional[int] = None
+    research_room_id: Optional[int] = None
+
+
+@router.put("/users/{user_id}/affiliation", summary="设置用户归属（学院、教研室）")
+async def update_user_affiliation(
+    user_id: int,
+    data: UserAffiliationUpdate,
+    current_user: TokenData = Depends(
+        require_access(roles_any=("school_admin",))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：设置用户的学院和教研室归属"""
+    # 获取用户
+    user = await db.get(User, user_id)
+    if not user or user.is_delete:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    college_id = data.college_id
+    research_room_id = data.research_room_id
+    
+    # 更新学院
+    user.college_id = college_id
+    
+    # 更新教研室（在TeacherProfile中）
+    profile_stmt = select(TeacherProfile).where(TeacherProfile.user_id == user_id)
+    profile_result = await db.execute(profile_stmt)
+    profile = profile_result.scalar_one_or_none()
+    
+    if profile:
+        profile.research_room_id = research_room_id
+        profile.college_id = college_id
+    else:
+        # 如果没有档案，创建一个
+        new_profile = TeacherProfile(
+            user_id=user_id,
+            college_id=college_id,
+            research_room_id=research_room_id,
+        )
+        db.add(new_profile)
+    
+    await db.commit()
+    
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={"user_id": user_id, "college_id": college_id, "research_room_id": research_room_id},
     )

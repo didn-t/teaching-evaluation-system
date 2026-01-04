@@ -43,7 +43,7 @@
 				<text class="search-icon">🔍</text>
 				<input 
 					:value="searchKeyword" 
-					placeholder="搜索课程名称" 
+					placeholder="搜索课程名/教师名" 
 					class="input"
 					placeholder-class="placeholder"
 					@input="handleSearchKeywordInput"
@@ -57,7 +57,8 @@
 				<view class="course-item" v-for="(course, index) in courses" :key="index" @tap="viewEvaluationDetail(course)">
 					<view class="item-header">
 						<text class="course-name">{{ course.course_name }}</text>
-						<text class="course-type">{{ course.course_type }}</text>
+						<!-- 22300417陈俫坤开发：course_type 为空时会出现“橙色点”，这里给已评课程默认显示“已评” -->
+						<text class="course-type">{{ (course.course_type !== undefined && course.course_type !== null && String(course.course_type).trim()) ? String(course.course_type).trim() : '已评' }}</text>
 					</view>
 					
 					<view class="item-info">
@@ -124,6 +125,8 @@ export default {
 		handleSearchKeywordInput(e) {
 			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
 			this.searchKeyword = value;
+			// 22300417陈俫坤开发：输入即触发搜索（防抖由 handleSearch 统一处理）
+			this.handleSearch();
 		},
 		// 获取已评课程列表
 		async getCompletedCourses() {
@@ -136,7 +139,10 @@ export default {
 						page: this.currentPage,
 						page_size: this.pageSize,
 						academic_year: '2025-2026', // 可以根据需要动态获取
-						semester: 2 // 可以根据需要动态获取
+						semester: 2, // 可以根据需要动态获取
+						// 22300417陈俫坤开发：关键词模糊搜索（课程名/教师名）；兼容旧参数 course_name
+						keyword: this.searchKeyword,
+						course_name: this.searchKeyword
 					}
 				});
 				
@@ -215,9 +221,17 @@ export default {
 		
 		// 查看评教详情
 		viewEvaluationDetail(course) {
-			// 这里需要根据实际情况调整，假设我们有一个详情页
+			// 22300417陈俫坤开发：已评课程列表返回 evaluation_id，用它跳转到评教详情页
+			if (!course || !course.evaluation_id) {
+				uni.showToast({
+					title: '未找到评教记录',
+					icon: 'none',
+					duration: 2000
+				});
+				return;
+			}
 			uni.navigateTo({
-				url: `/pages/evaluation/detail?course_id=${course.id}`
+				url: `/pages/evaluation/detail?evaluation_id=${course.evaluation_id}`
 			});
 		}
 	}

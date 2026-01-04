@@ -3,7 +3,7 @@
 		<!-- 个人信息卡片 -->
 		<view class="profile-card">
 			<view class="avatar-section">
-				<image src="/static/logo.png" class="avatar" mode="aspectFit"></image>
+				<image :src="logoUrl" class="avatar" mode="aspectFit"></image>
 				<view class="user-info">
 					<text class="username">{{ userInfo.user_name || '未设置' }}</text>
 					<text class="user-role">{{ getUserRoleText() }}</text>
@@ -26,6 +26,11 @@
 			<view class="info-item">
 				<text class="info-label">学院</text>
 				<text class="info-value">{{ userInfo.college_name || '未设置' }}</text>
+			</view>
+			
+			<view class="info-item">
+				<text class="info-label">教研室</text>
+				<text class="info-value">{{ userInfo.research_room_name || '未设置' }}</text>
 			</view>
 			
 			<view class="info-item">
@@ -91,6 +96,13 @@
 					</view>
 					
 					<view class="form-item">
+						<text class="form-label">教研室</text>
+						<picker mode="selector" :range="researchRoomPickerNames" :value="researchRoomIndex" @change="handleResearchRoomChange">
+							<view class="form-input picker-input">{{ currentResearchRoomName }}</view>
+						</picker>
+					</view>
+					
+					<view class="form-item">
 						<text class="form-label">用户名</text>
 						<input 
 							type="text" 
@@ -117,15 +129,20 @@ import { request } from '../../common/request.js';
 export default {
 	data() {
 		return {
+			logoUrl: '/static/logo.png',
 			userInfo: {},
 			editForm: {
 				user_name: '',
 				user_on: '',
 				// 22300417陈俫坤开发：支持用户设置学院
-				college_id: null
+				college_id: null,
+				// 22300417陈俫坤开发：教师可同时属于学院与教研室
+				research_room_id: null
 			},
 			// 22300417陈俫坤开发：学院列表（用于 picker）
 			colleges: [],
+			// 22300417陈俫坤开发：教研室列表（用于 picker）
+			researchRooms: [],
 			loading: false
 		};
 	},
@@ -140,11 +157,23 @@ export default {
 		},
 		currentCollegeName() {
 			return this.getCollegeNameById(this.editForm.college_id);
+		},
+		researchRoomPickerNames() {
+			const names = ['未设置'];
+			(this.researchRooms || []).forEach(r => names.push(r.room_name));
+			return names;
+		},
+		researchRoomIndex() {
+			return this.getResearchRoomIndexById(this.editForm.research_room_id);
+		},
+		currentResearchRoomName() {
+			return this.getResearchRoomNameById(this.editForm.research_room_id);
 		}
 	},
 	onLoad() {
 		this.getUserInfo();
 		this.loadColleges();
+		this.loadResearchRooms();
 	},
 	onShow() {
 		// 页面显示时刷新用户信息
@@ -179,10 +208,53 @@ export default {
 			const index = (e && e.detail && e.detail.value !== undefined) ? Number(e.detail.value) : 0;
 			if (index <= 0) {
 				this.editForm.college_id = null;
+				// 22300417陈俫坤开发：学院变更后，教研室选择也清空并刷新列表
+				this.editForm.research_room_id = null;
+				this.loadResearchRooms();
 				return;
 			}
 			const c = (this.colleges || [])[index - 1];
 			this.editForm.college_id = c ? c.id : null;
+			// 22300417陈俫坤开发：学院变更后，教研室选择也清空并刷新列表
+			this.editForm.research_room_id = null;
+			this.loadResearchRooms();
+		},
+
+		// 22300417陈俫坤开发：获取教研室列表供用户选择（默认按本人学院过滤；传 college_id 可按学院筛选）
+		async loadResearchRooms() {
+			try {
+				const params = {};
+				if (this.editForm && this.editForm.college_id) {
+					params.college_id = this.editForm.college_id;
+				}
+				const res = await request({
+					url: '/user/research-rooms',
+					method: 'GET',
+					params
+				});
+				this.researchRooms = (res && res.list) ? res.list : [];
+			} catch (e) {
+				this.researchRooms = [];
+			}
+		},
+		getResearchRoomIndexById(roomId) {
+			if (!roomId) return 0;
+			const idx = (this.researchRooms || []).findIndex(r => Number(r.id) === Number(roomId));
+			return idx >= 0 ? idx + 1 : 0;
+		},
+		getResearchRoomNameById(roomId) {
+			if (!roomId) return '未设置';
+			const r = (this.researchRooms || []).find(x => Number(x.id) === Number(roomId));
+			return r ? r.room_name : '未设置';
+		},
+		handleResearchRoomChange(e) {
+			const index = (e && e.detail && e.detail.value !== undefined) ? Number(e.detail.value) : 0;
+			if (index <= 0) {
+				this.editForm.research_room_id = null;
+				return;
+			}
+			const r = (this.researchRooms || [])[index - 1];
+			this.editForm.research_room_id = r ? r.id : null;
 		},
 
 		// 兼容 web 和微信小程序的输入处理
@@ -214,6 +286,8 @@ export default {
 				// 保存到本地
 				uni.setStorageSync('userInfo', userInfo);
 				this.userInfo = userInfo;
+				// 22300417陈俫坤开发：同步编辑表单默认值
+				this.editForm.research_room_id = userInfo.research_room_id || null;
 			} catch (error) {
 				console.error('获取用户信息失败:', error);
 				// 如果获取失败，可能是登录过期，跳转到登录页面
@@ -257,7 +331,8 @@ export default {
 			this.editForm = {
 				user_name: this.userInfo.user_name || '',
 				user_on: this.userInfo.user_on || '',
-				college_id: this.userInfo.college_id || null
+				college_id: this.userInfo.college_id || null,
+				research_room_id: this.userInfo.research_room_id || null
 			};
 			// 打开弹窗
 			this.$refs.editPopup.open();
@@ -308,6 +383,7 @@ export default {
 				// 更新本地用户信息
 				this.userInfo = { ...this.userInfo, ...this.editForm };
 				this.userInfo.college_name = this.getCollegeNameById(this.editForm.college_id);
+				this.userInfo.research_room_name = this.getResearchRoomNameById(this.editForm.research_room_id);
 				uni.setStorageSync('userInfo', this.userInfo);
 				
 				// 关闭弹窗

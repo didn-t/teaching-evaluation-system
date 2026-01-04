@@ -6,7 +6,7 @@ from statistics import mean
 from collections import Counter
 from typing import Optional, List, Dict, Any, Tuple
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -84,6 +84,7 @@ class TeachingEvaluationCRUD:
         *,
         timetable_id: int,
         listen_teacher_id: int,
+        eval_source: Optional[str] = None,
         total_score: int,
         dimension_scores: Dict[str, Any],
         listen_date: datetime,
@@ -115,6 +116,7 @@ class TeachingEvaluationCRUD:
             timetable_id=timetable_id,
             teach_teacher_id=timetable.teacher_id,
             listen_teacher_id=listen_teacher_id,
+            eval_source=eval_source,
             total_score=total_score,
             dimension_scores=dimension_scores,
             score_level=self.score_level(total_score),
@@ -163,7 +165,15 @@ class TeachingEvaluationCRUD:
         if status is not None:
             conditions.append(TeachingEvaluation.status == status)
 
-        base = select(TeachingEvaluation).where(and_(*conditions))
+        # 22300417陈俫坤开发：为“我的评教”列表补齐课程名/授课教师名，避免前端只能展示评教编号
+        base = (
+            select(TeachingEvaluation)
+            .options(
+                selectinload(TeachingEvaluation.timetable),
+                selectinload(TeachingEvaluation.teach_teacher),
+            )
+            .where(and_(*conditions))
+        )
         res = await db.execute(
             base.order_by(TeachingEvaluation.submit_time.desc()).offset(skip).limit(page_size)
         )
@@ -542,6 +552,158 @@ class TeachingEvaluationCRUD:
             "dimension_avg_scores": dimension_avg_scores or None,
             "dimension_scores": dimension_scores,
             "trend_data": trend_data,
+        }
+
+    async def listen_statistics_supervisor(
+        self,
+        db: AsyncSession,
+        *,
+        listen_teacher_id: int,
+        academic_year: Optional[str] = None,
+        semester: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """22300417陈俫坤开发：督导“我提交的评教”统计（聚合增强）"""
+
+        listener = (await db.execute(select(User).where(User.id == listen_teacher_id))).scalar_one_or_none()
+        if not listener:
+            raise ValueError("用户不存在")
+
+        base_where = [
+            TeachingEvaluation.listen_teacher_id == listen_teacher_id,
+            TeachingEvaluation.is_delete == False,  # noqa: E712
+            TeachingEvaluation.status == 1,
+            # 22300417陈俫坤开发：督导统计仅统计督导评教（兼容旧数据 eval_source 为空）
+            or_(TeachingEvaluation.eval_source == "supervisor", TeachingEvaluation.eval_source.is_(None)),
+        ]
+
+        stmt = (
+            select(
+                TeachingEvaluation.total_score,
+                TeachingEvaluation.teach_teacher_id,
+                User.user_name,
+                Timetable.college_id,
+                College.college_name,
+            )
+            .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+            .join(User, User.id == TeachingEvaluation.teach_teacher_id)
+            .outerjoin(College, College.id == Timetable.college_id)
+            .where(and_(*base_where))
+        )
+        if academic_year and semester:
+            stmt = stmt.where(Timetable.academic_year == academic_year, Timetable.semester == semester)
+
+        rows = list((await db.execute(stmt)).all())
+        scores = [int(r[0] or 0) for r in rows]
+
+        pending_stmt = (
+            select(func.count(TeachingEvaluation.id))
+            .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+            .where(
+                TeachingEvaluation.listen_teacher_id == listen_teacher_id,
+                TeachingEvaluation.is_delete == False,  # noqa: E712
+                TeachingEvaluation.status == 2,
+                or_(TeachingEvaluation.eval_source == "supervisor", TeachingEvaluation.eval_source.is_(None)),
+            )
+        )
+        if academic_year and semester:
+            pending_stmt = pending_stmt.where(Timetable.academic_year == academic_year, Timetable.semester == semester)
+        pending_evaluation_num = int((await db.execute(pending_stmt)).scalar_one() or 0)
+
+        valid_evaluation_num = int(len(rows))
+        total_evaluations = int(valid_evaluation_num + pending_evaluation_num)
+
+        def level5(score: int) -> str:
+            if score >= 90:
+                return "优秀"
+            if score >= 80:
+                return "良好"
+            if score >= 70:
+                return "一般"
+            if score >= 60:
+                return "合格"
+            return "不合格"
+
+        college_map: Dict[int, Dict[str, Any]] = {}
+        level_teacher_map: Dict[str, Dict[tuple[int, int], Dict[str, Any]]] = {
+            "优秀": {},
+            "良好": {},
+            "一般": {},
+            "合格": {},
+            "不合格": {},
+        }
+
+        for total_score, teach_teacher_id, teach_teacher_name, cid, cname in rows:
+            cidi = int(cid) if cid is not None else 0
+            cn = cname or "未知学院"
+            tid = int(teach_teacher_id) if teach_teacher_id is not None else 0
+            tn = teach_teacher_name or "未知教师"
+            score_int = int(total_score or 0)
+
+            cobj = college_map.get(cidi)
+            if cobj is None:
+                cobj = {
+                    "college_id": cidi,
+                    "college_name": cn,
+                    "evaluation_count": 0,
+                    "teachers": {},
+                }
+                college_map[cidi] = cobj
+            cobj["evaluation_count"] += 1
+            tmap = cobj["teachers"]
+            tob = tmap.get(tid)
+            if tob is None:
+                tob = {"teacher_id": tid, "teacher_name": tn, "evaluation_count": 0}
+                tmap[tid] = tob
+            tob["evaluation_count"] += 1
+
+            lv = level5(score_int)
+            key = (cidi, tid)
+            lmap = level_teacher_map[lv]
+            lob = lmap.get(key)
+            if lob is None:
+                lob = {
+                    "college_id": cidi,
+                    "college_name": cn,
+                    "teacher_id": tid,
+                    "teacher_name": tn,
+                    "evaluation_count": 0,
+                }
+                lmap[key] = lob
+            lob["evaluation_count"] += 1
+
+        college_stats = []
+        for _, cobj in sorted(college_map.items(), key=lambda x: (-int(x[1].get("evaluation_count", 0)), x[1].get("college_name", ""))):
+            teachers = list(cobj["teachers"].values())
+            teachers.sort(key=lambda x: (-int(x.get("evaluation_count", 0)), x.get("teacher_name", "")))
+            college_stats.append(
+                {
+                    "college_id": cobj["college_id"],
+                    "college_name": cobj["college_name"],
+                    "evaluation_count": int(cobj["evaluation_count"]),
+                    "teacher_count": int(len(teachers)),
+                    "teachers": teachers,
+                }
+            )
+
+        level_stats = {}
+        for lv in ("优秀", "良好", "一般", "合格", "不合格"):
+            items = list(level_teacher_map[lv].values())
+            items.sort(key=lambda x: (-int(x.get("evaluation_count", 0)), x.get("college_name", ""), x.get("teacher_name", "")))
+            level_stats[lv] = {
+                "count": int(sum(int(x.get("evaluation_count", 0)) for x in items)),
+                "teachers": items,
+            }
+
+        return {
+            "listen_teacher_id": listen_teacher_id,
+            "listen_teacher_name": listener.user_name,
+            "total_evaluations": total_evaluations,
+            "valid_evaluation_num": valid_evaluation_num,
+            "pending_evaluation_num": pending_evaluation_num,
+            "total_evaluation_num": valid_evaluation_num,
+            "avg_total_score": round(mean(scores), 2) if scores else 0.0,
+            "college_stats": college_stats,
+            "level_stats": level_stats,
         }
 
 

@@ -5,9 +5,12 @@
 		</view>
 
 		<view class="tabs">
-			<view class="tab" :class="activeTab === 'school' ? 'active' : ''" @tap="switchTab('school')">全校</view>
+			<view class="tab" :class="activeTab === 'school' ? 'active' : ''" @tap="switchTab('school')" v-if="isSchoolAdmin">全校</view>
 			<view class="tab" :class="activeTab === 'college' ? 'active' : ''" @tap="switchTab('college')">学院</view>
 			<view class="tab" :class="activeTab === 'ranking' ? 'active' : ''" @tap="switchTab('ranking')">教师排名</view>
+			<!-- 22300417陈俫坤开发：学院管理员/学校管理员专用统计Tab -->
+			<view class="tab" :class="activeTab === 'listen_stat' ? 'active' : ''" @tap="switchTab('listen_stat')" v-if="isCollegeAdmin || isSchoolAdmin">听课统计</view>
+			<view class="tab" :class="activeTab === 'received_stat' ? 'active' : ''" @tap="switchTab('received_stat')" v-if="isCollegeAdmin || isSchoolAdmin">被听统计</view>
 		</view>
 
 		<view class="filter-section">
@@ -111,6 +114,71 @@
 				</view>
 			</view>
 
+			<!-- 22300417陈俫坤开发：学院管理员 - 教师听课统计 -->
+			<view v-if="activeTab === 'listen_stat'" class="card" v-show="!loading">
+				<view v-if="listenStat" class="stat-block">
+					<view class="stat-row">
+						<text class="stat-label">本院教师总数</text>
+						<text class="stat-value">{{ listenStat.total_teachers ?? 0 }}</text>
+					</view>
+					<view class="stat-row">
+						<text class="stat-label">已完成听课任务</text>
+						<text class="stat-value">{{ listenStat.completed_count ?? 0 }}</text>
+					</view>
+					<view class="stat-row">
+						<text class="stat-label">未完成听课任务</text>
+						<text class="stat-value">{{ listenStat.incomplete_count ?? 0 }}</text>
+					</view>
+					<view class="stat-subtitle">教师听课详情</view>
+					<view class="teacher-list">
+						<view class="teacher-item" v-for="t in listenStat.teachers" :key="t.teacher_id">
+							<text class="teacher-name">{{ t.teacher_name }}</text>
+							<text class="teacher-count">已听 {{ t.listen_count }} 次</text>
+							<text class="teacher-status" :class="t.listen_count >= (listenStat.required_count || 1) ? 'status-ok' : 'status-warn'">{{ t.listen_count >= (listenStat.required_count || 1) ? '已完成' : '未完成' }}</text>
+						</view>
+					</view>
+				</view>
+				<view v-else class="empty-state">
+					<text class="empty-icon">📋</text>
+					<text class="empty-text">暂无数据</text>
+				</view>
+			</view>
+
+			<!-- 22300417陈俫坤开发：学院管理员 - 教师被听统计 -->
+			<view v-if="activeTab === 'received_stat'" class="card" v-show="!loading">
+				<view v-if="receivedStat" class="stat-block">
+					<view class="stat-row">
+						<text class="stat-label">本院被评教总次数</text>
+						<text class="stat-value">{{ receivedStat.total_received ?? 0 }}</text>
+					</view>
+					<view class="stat-row">
+						<text class="stat-label">本院平均分</text>
+						<text class="stat-value">{{ formatScore(receivedStat.avg_score) }}</text>
+					</view>
+					<view class="stat-subtitle">得分分布</view>
+					<view class="tags">
+						<text class="tag">优秀 {{ receivedStat.score_distribution?.优秀 ?? 0 }}</text>
+						<text class="tag">良好 {{ receivedStat.score_distribution?.良好 ?? 0 }}</text>
+						<text class="tag">一般 {{ receivedStat.score_distribution?.一般 ?? 0 }}</text>
+						<text class="tag">合格 {{ receivedStat.score_distribution?.合格 ?? 0 }}</text>
+						<text class="tag">不合格 {{ receivedStat.score_distribution?.不合格 ?? 0 }}</text>
+					</view>
+					<view class="stat-subtitle">教师被评排名</view>
+					<view class="teacher-list">
+						<view class="teacher-item" v-for="(t, idx) in receivedStat.teacher_ranking" :key="t.teacher_id">
+							<text class="rank-badge">#{{ idx + 1 }}</text>
+							<text class="teacher-name">{{ t.teacher_name }}</text>
+							<text class="teacher-score">{{ formatScore(t.avg_score) }}分</text>
+							<text class="teacher-count">{{ t.received_count }}次</text>
+						</view>
+					</view>
+				</view>
+				<view v-else class="empty-state">
+					<text class="empty-icon">📊</text>
+					<text class="empty-text">暂无数据</text>
+				</view>
+			</view>
+
 			<view v-if="loading" class="loading">加载中...</view>
 		</view>
 	</view>
@@ -135,7 +203,12 @@ export default {
 			colleges: [],
 			schoolStat: null,
 			collegeStat: null,
-			ranking: []
+			ranking: [],
+			// 22300417陈俫坤开发：学院管理员专用统计数据
+			listenStat: null,
+			receivedStat: null,
+			isCollegeAdmin: false,
+			isSchoolAdmin: false
 		};
 	},
 	onLoad() {
@@ -165,10 +238,13 @@ export default {
 	methods: {
 		async init() {
 			await this.loadMe();
-			// 22300417陈俫坤开发：非 school_admin 默认展示学院统计，避免全校统计接口 403
+			// 22300417陈俫坤开发：判断角色
 			const codes = (this.me && this.me.roles_code) ? this.me.roles_code : [];
-			if (!codes.includes('school_admin')) {
-				this.activeTab = 'college';
+			this.isSchoolAdmin = codes.includes('school_admin');
+			this.isCollegeAdmin = codes.includes('college_admin');
+			// 22300417陈俫坤开发：非 school_admin 默认展示学院统计，避免全校统计接口 403
+			if (!this.isSchoolAdmin) {
+				this.activeTab = this.isCollegeAdmin ? 'listen_stat' : 'college';
 			}
 			await this.loadColleges();
 			this.refresh();
@@ -279,6 +355,46 @@ export default {
 					this.ranking = (res && res.ranking) ? res.ranking : [];
 					this.schoolStat = null;
 					this.collegeStat = null;
+				}
+				// 22300417陈俫坤开发：学院管理员 - 教师听课统计
+				if (this.activeTab === 'listen_stat') {
+					// school_admin必须先选择学院
+					if (!this.filters.college_id) {
+						this.listenStat = null;
+						return;
+					}
+					this.listenStat = await request({
+						url: '/eval/college/statistics/listen',
+						method: 'GET',
+						params: {
+							...params,
+							college_id: this.filters.college_id
+						}
+					});
+					this.schoolStat = null;
+					this.collegeStat = null;
+					this.ranking = [];
+					this.receivedStat = null;
+				}
+				// 22300417陈俫坤开发：学院管理员 - 教师被听统计
+				if (this.activeTab === 'received_stat') {
+					// school_admin必须先选择学院
+					if (!this.filters.college_id) {
+						this.receivedStat = null;
+						return;
+					}
+					this.receivedStat = await request({
+						url: '/eval/college/statistics/received',
+						method: 'GET',
+						params: {
+							...params,
+							college_id: this.filters.college_id
+						}
+					});
+					this.schoolStat = null;
+					this.collegeStat = null;
+					this.ranking = [];
+					this.listenStat = null;
 				}
 			} catch (e) {
 				// 22300417陈俫坤开发：改善错误提示，显示具体错误信息
@@ -558,5 +674,63 @@ export default {
 	text-align: center;
 	font-size: 28rpx;
 	color: #999999;
+}
+
+/* 22300417陈俫坤开发：学院管理员统计样式 */
+.teacher-list {
+	margin-top: 16rpx;
+}
+
+.teacher-item {
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+	padding: 16rpx;
+	background-color: #FFFFFF;
+	border-radius: 8rpx;
+	margin-bottom: 12rpx;
+}
+
+.teacher-item:last-child {
+	margin-bottom: 0;
+}
+
+.teacher-name {
+	flex: 1;
+	font-size: 26rpx;
+	color: #333333;
+}
+
+.teacher-count {
+	font-size: 24rpx;
+	color: #666666;
+}
+
+.teacher-score {
+	font-size: 26rpx;
+	color: #3E5C76;
+	font-weight: bold;
+}
+
+.teacher-status {
+	font-size: 22rpx;
+	padding: 4rpx 12rpx;
+	border-radius: 20rpx;
+}
+
+.status-ok {
+	background-color: #E8F5E9;
+	color: #4CAF50;
+}
+
+.status-warn {
+	background-color: #FFF3E0;
+	color: #FF9800;
+}
+
+.rank-badge {
+	font-size: 22rpx;
+	color: #999999;
+	min-width: 50rpx;
 }
 </style>

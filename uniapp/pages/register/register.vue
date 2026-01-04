@@ -2,7 +2,7 @@
 	<view class="register-container">
 		<!-- Logo区域 -->
 		<view class="logo-section">
-			<image src="/static/logo.png" class="logo" mode="aspectFit"></image>
+			<image :src="logoUrl" class="logo" mode="aspectFit"></image>
 			<text class="subtitle">账号注册</text>
 		</view>
 		
@@ -85,6 +85,7 @@ export default {
 	name: 'register',
 	data() {
 		return {
+			logoUrl: '/static/logo.png',
 			form: {
 				user_on: '',
 				password: '',

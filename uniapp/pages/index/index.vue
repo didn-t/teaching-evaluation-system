@@ -6,7 +6,7 @@
 				<text class="welcome-text">欢迎您，{{ userInfo.user_name || '用户' }}</text>
 				<text class="date-text">{{ currentDate }}</text>
 			</view>
-			<image src="/static/logo.png" class="avatar" mode="aspectFit"></image>
+			<image :src="logoUrl" class="avatar" mode="aspectFit"></image>
 		</view>
 
 		<!-- 功能模块 -->
@@ -52,16 +52,28 @@
 					<text class="module-title">个人信息</text>
 				</view>
 
-				<!-- 22300417陈俫坤开发：督导老师/学院管理员入口：学院统计（负责范围统计/排名/导出） -->
+				<!-- 22300417陈俫坤开发：督导老师/学院管理员/学校管理员入口：学院统计（负责范围统计/排名/导出） -->
 				<view
 					class="module-item"
-					v-if="userInfo.roles_code && (userInfo.roles_code.includes('supervisor') || userInfo.roles_code.includes('college_admin'))"
+					v-if="userInfo.roles_code && (userInfo.roles_code.includes('supervisor') || userInfo.roles_code.includes('college_admin') || userInfo.roles_code.includes('school_admin'))"
 					@tap="navigateTo('/pages/admin/statistics')"
 				>
 					<view class="module-icon stats">
 						<text class="icon-text">院</text>
 					</view>
 					<text class="module-title">学院统计</text>
+				</view>
+
+				<!-- 22300417陈俫坤开发：学院管理员/学校管理员入口：教师评教（本院教师听课记录、收到的评教、待评/已评课程） -->
+				<view
+					class="module-item"
+					v-if="userInfo.roles_code && (userInfo.roles_code.includes('college_admin') || userInfo.roles_code.includes('school_admin'))"
+					@tap="navigateTo('/pages/admin/college-evaluation')"
+				>
+					<view class="module-icon my-eval">
+						<text class="icon-text">评</text>
+					</view>
+					<text class="module-title">教师评教</text>
 				</view>
 
 				<!-- 管理员功能入口 -->
@@ -178,6 +190,11 @@
 						<text class="menu-text">学院管理</text>
 						<text class="arrow"></text>
 					</view>
+					<!-- 22300417陈俫坤开发：组织架构管理入口 -->
+					<view class="menu-item" @tap="navigateToAdmin('/pages/admin/org-management')">
+						<text class="menu-text">组织架构管理</text>
+						<text class="arrow"></text>
+					</view>
 					<view class="menu-item" @tap="navigateToAdmin('/pages/admin/course-status-management')">
 						<text class="menu-text">课程状态管理</text>
 						<text class="arrow"></text>
@@ -195,6 +212,7 @@ export default {
 	name: 'index',
 	data() {
 		return {
+			logoUrl: '/static/logo.png',
 			userInfo: {},
 			currentDate: '',
 			pendingCoursesCount: 0,

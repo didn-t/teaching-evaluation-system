@@ -11,6 +11,10 @@
 		<!-- 基本信息 -->
 		<view class="basic-info">
 			<view class="info-row">
+				<text class="info-label">评教编号</text>
+				<text class="info-value">{{ evaluationInfo.evaluation_no || '' }}</text>
+			</view>
+			<view class="info-row">
 				<text class="info-label">授课教师</text>
 				<text class="info-value">{{ evaluationInfo.teach_teacher_name || evaluationInfo.teach_teacher_id }}</text>
 			</view>
@@ -27,17 +31,17 @@
 			
 			<view class="info-row">
 				<text class="info-label">评教日期</text>
-				<text class="info-value">{{ evaluationInfo.listen_date }}</text>
+				<text class="info-value">{{ formatDateOnly(evaluationInfo.listen_date) }}</text>
 			</view>
 			
 			<view class="info-row">
 				<text class="info-label">评教时间</text>
-				<text class="info-value">{{ evaluationInfo.submit_time }}</text>
+				<text class="info-value">{{ formatTimeOnly(evaluationInfo.submit_time) }}</text>
 			</view>
 			
 			<view class="info-row">
 				<text class="info-label">听课时长</text>
-				<text class="info-value">{{ evaluationInfo.listen_duration }}分钟</text>
+				<text class="info-value">{{ (evaluationInfo.listen_duration || evaluationInfo.listen_duration === 0) ? (evaluationInfo.listen_duration + '分钟') : '' }}</text>
 			</view>
 			
 			<view class="info-row">
@@ -47,7 +51,7 @@
 			
 			<view class="info-row">
 				<text class="info-label">评教教师</text>
-				<text class="info-value">{{ evaluationInfo.listen_teacher_name || evaluationInfo.listen_teacher_id }}</text>
+				<text class="info-value">{{ getEvaluatorName() }}</text>
 			</view>
 			
 			<view class="info-row">
@@ -131,6 +135,40 @@ export default {
 		}
 	},
 	methods: {
+		// 22300417陈俫坤开发：格式化后端 ISO 日期（如 2026-01-03T00:00:00 -> 2026-01-03）
+		formatDateOnly(value) {
+			if (!value) return '';
+			const str = String(value);
+			if (str.includes('T')) return str.split('T')[0];
+			if (str.includes(' ')) return str.split(' ')[0];
+			return str;
+		},
+		// 22300417陈俫坤开发：格式化后端 ISO 时间（如 2026-01-03T16:13:08 -> 2026-01-03 16:13:08）
+		formatDateTime(value) {
+			if (!value) return '';
+			const str = String(value);
+			if (str.includes('T')) {
+				const parts = str.split('T');
+				const date = parts[0] || '';
+				let time = parts[1] || '';
+				if (time.includes('.')) time = time.split('.')[0];
+				if (time.includes('Z')) time = time.replace('Z', '');
+				return `${date} ${time}`.trim();
+			}
+			return str;
+		},
+		// 22300417陈俫坤开发：仅展示时间部分（避免与“评教日期”重复）
+		formatTimeOnly(value) {
+			if (!value) return '';
+			const str = this.formatDateTime(value);
+			if (str.includes(' ')) return str.split(' ')[1] || '';
+			return str;
+		},
+		// 22300417陈俫坤开发：匿名评教时，详情页“评教教师”显示匿名
+		getEvaluatorName() {
+			if (this.evaluationInfo && this.evaluationInfo.is_anonymous) return '匿名';
+			return this.evaluationInfo.listen_teacher_name || this.evaluationInfo.listen_teacher_id || '';
+		},
 		// 获取评教详情
 		async getEvaluationDetail() {
 			this.loading = true;
@@ -309,6 +347,7 @@ export default {
 	font-size: 28rpx;
 	color: #666666;
 	font-weight: 500;
+	min-width: 160rpx;
 }
 
 .info-value {
@@ -317,6 +356,7 @@ export default {
 	text-align: right;
 	flex: 1;
 	margin-left: 20rpx;
+	word-break: break-all;
 }
 
 .score {
@@ -358,12 +398,16 @@ export default {
 	font-size: 28rpx;
 	color: #333333;
 	font-weight: 500;
+	flex: 1;
 }
 
 .dimension-score-value {
 	font-size: 30rpx;
 	font-weight: bold;
 	color: #3E5C76;
+	flex-shrink: 0;
+	margin-left: 20rpx;
+	text-align: right;
 }
 
 /* 评价内容 */

@@ -7,12 +7,17 @@
 				<text class="info-value">{{ courseInfo.course_name || '加载中...' }}</text>
 			</view>
 			<view class="info-item">
+				<text class="info-label">授课班级</text>
+				<text class="info-value">{{ courseInfo.class_name || '加载中...' }}</text>
+			</view>
+			<view class="info-item">
 				<text class="info-label">授课教师</text>
 				<text class="info-value">{{ courseInfo.teacher_name || '加载中...' }}</text>
 			</view>
 			<view class="info-item">
 				<text class="info-label">上课地点</text>
-				<text class="info-value">{{ courseInfo.classroom || '加载中...' }}</text>
+				<!-- 22300417陈俫坤开发：课表地点为空时不显示“加载中”，优先课表地点，其次听课地点，最后显示“—” -->
+				<text class="info-value">{{ courseLoaded ? ((courseInfo.classroom || form.listen_location) ? (courseInfo.classroom || form.listen_location) : '—') : '加载中...' }}</text>
 			</view>
 			<view class="info-item">
 				<text class="info-label">上课时间</text>
@@ -236,6 +241,8 @@ export default {
 	data() {
 		return {
 			courseInfo: {},
+			// 22300417陈俫坤开发：用于区分“接口未返回”与“返回为空”，避免空值一直显示加载中
+			courseLoaded: false,
 			dimensionConfig: {
 				teachingAttitude: {
 					name: '教学态度',
@@ -275,12 +282,12 @@ export default {
 				}
 			},
 
-			//初始分数
+			// 初始分数（22300417陈俫坤开发：默认满分，总分 100 分）
 			scores: {
-				teachingAttitude: { onTime: 3, classManagement: 3, teachingEthics: 6 },
-				content: { clearObjectives: 6, familiarContent: 6, innovativeDesign: 6, ideologicalContent: 6, practicalApplication: 6 },
-				method: { boardAndPPT: 3, interactiveTeaching: 6 },
-				effect: { activeClassroom: 6, innovativeInspiration: 3 }
+				teachingAttitude: { onTime: 5, classManagement: 5, teachingEthics: 10 },
+				content: { clearObjectives: 10, familiarContent: 10, innovativeDesign: 10, ideologicalContent: 10, practicalApplication: 10 },
+				method: { boardAndPPT: 5, interactiveTeaching: 10 },
+				effect: { activeClassroom: 10, innovativeInspiration: 5 }
 			},
 
 			form: {
@@ -315,6 +322,18 @@ export default {
 			this.scores[dimensionKey][itemKey] = v;
 		},
 
+		// 22300417陈俫坤开发：上课时间文案 = 听课日期 + 星期 + 节次（中文），日期为空时不拼日期
+		updateTeachingTimeText() {
+			const listenDateText = this.form && this.form.listen_date ? this.form.listen_date : '';
+			const weekdayText = this.courseInfo && this.courseInfo.weekday_text ? this.courseInfo.weekday_text : '';
+			const periodText = this.courseInfo && this.courseInfo.period ? this.courseInfo.period : '';
+			const teachingTimeText = `${listenDateText ? (listenDateText + ' ') : ''}${weekdayText} ${periodText}`.trim();
+			this.courseInfo = {
+				...(this.courseInfo || {}),
+				teaching_time: teachingTimeText,
+			};
+		},
+
 		async getCourseInfo() {
 			try {
 				// 22300417陈俫坤开发：后端路由为 /api/v1/teaching-eval/org/timetable/{timetable_id}
@@ -327,27 +346,36 @@ export default {
 				if (res) {
 					this.courseInfo = {
 						course_name: res.course_name,
+						class_name: res.class_name,
 						teacher_name: res.teacher_name || '未知教师',
-						classroom: res.classroom,
-						teaching_time: `${res.weekday_text} ${res.period}`
+						classroom: res.classroom || '',
+						weekday_text: res.weekday_text || '',
+						period: res.period || '',
+						teaching_time: ''
 					};
+					this.courseLoaded = true;
+					this.updateTeachingTimeText();
 				} else {
 					this.courseInfo = {
 						course_name: '未知课程',
+						class_name: '',
 						teacher_name: '未知教师',
 						classroom: '未知地点',
 						teaching_time: '未知时间'
 					};
+					this.courseLoaded = true;
 				}
 			} catch (error) {
 				console.error('获取课程信息失败:', error);
 				uni.showToast({ title: '获取课程信息失败', icon: 'none', duration: 2000 });
 				this.courseInfo = {
 					course_name: '未知课程',
+					class_name: '',
 					teacher_name: '未知教师',
 					classroom: '未知地点',
 					teaching_time: '未知时间'
 				};
+				this.courseLoaded = true;
 			}
 		},
 
@@ -370,6 +398,8 @@ export default {
 		handleListenDateInput(e) {
 			const value = (e && e.detail && e.detail.value !== undefined) ? e.detail.value : (e && e.target ? e.target.value : '');
 			this.form.listen_date = value;
+			// 22300417陈俫坤开发：听课日期变更后，刷新顶部“上课时间”展示
+			this.updateTeachingTimeText();
 		},
 		handleDurationChange(e) {
 			// 兼容 web 和微信小程序

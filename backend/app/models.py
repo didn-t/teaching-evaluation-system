@@ -187,8 +187,28 @@ class RolePermission(Base):
 
 
 # =========================================================
-#  学院 / 教研室 / 专业 / 班级 / 教师档案
+#  校区 / 学院 / 教研室 / 专业 / 班级 / 教师档案
 # =========================================================
+
+class Campus(Base):
+    """校区表：学校的不同校区"""
+    __tablename__ = 'campus'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='校区ID')
+    campus_name = Column(String(64), nullable=False, unique=True, comment='校区名称')
+    sort_order = Column(SmallInteger, default=0, comment='排序')
+
+    create_time = Column(DateTime, server_default=func.now(), comment='创建时间')
+    update_time = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment='更新时间')
+    is_delete = Column(Boolean, default=False, index=True, comment='逻辑删除')
+
+    colleges = relationship("College", back_populates="campus")
+
+    __table_args__ = (
+        Index('idx_campus_delete', 'is_delete'),
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'comment': '校区表'}
+    )
+
 
 class College(Base):
     """学院表：基础组织维度"""
@@ -200,10 +220,13 @@ class College(Base):
     short_name = Column(String(16), comment='学院简称（可空）')
     sort_order = Column(SmallInteger, default=0, comment='排序')
 
+    campus_id = Column(BigInteger, ForeignKey('campus.id', ondelete='SET NULL'), nullable=True, index=True, comment='校区ID')
+
     create_time = Column(DateTime, server_default=func.now(), comment='创建时间')
     update_time = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment='更新时间')
     is_delete = Column(Boolean, default=False, index=True, comment='逻辑删除')
 
+    campus = relationship("Campus", back_populates="colleges")
     users = relationship("User", back_populates="college")
     timetables = relationship("Timetable", back_populates="college")
 
@@ -505,6 +528,8 @@ class TeachingEvaluation(Base):
     # 听课教师：发起评教的人
     listen_teacher_id = Column(BigInteger, ForeignKey('user.id', ondelete='RESTRICT'),
                                nullable=False, index=True, comment='听课教师ID（user.id）')
+
+    eval_source = Column(String(16), nullable=True, index=True, comment='评教来源（peer/supervisor，可空）')
 
     # 评分
     total_score = Column(TINYINT, nullable=False, comment='评教总分（0-100）')

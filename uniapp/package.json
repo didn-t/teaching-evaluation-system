@@ -4,8 +4,8 @@
   "description": "教学评价系统前端",
   "main": "main.js",
   "scripts": {
-    "dev:mp-weixin": "cross-env UNI_PLATFORM=mp-weixin UNI_INPUT_DIR=src npx uni build -p mp-weixin -w -m development --logLevel all",
-    "build:mp-weixin": "cross-env UNI_PLATFORM=mp-weixin UNI_INPUT_DIR=src npx uni build -p mp-weixin -m production"
+    "dev:mp-weixin": "cross-env UNI_PLATFORM=mp-weixin UNI_INPUT_DIR=. npx uni build -p mp-weixin -w -m development --logLevel all",
+    "build:mp-weixin": "cross-env UNI_PLATFORM=mp-weixin UNI_INPUT_DIR=. npx uni build -p mp-weixin -m production"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4080720251210001",

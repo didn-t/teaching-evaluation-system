@@ -145,6 +145,22 @@
 				"navigationBarBackgroundColor": "#3E5C76",
 				"navigationBarTextStyle": "white"
 			}
+		},
+		{
+			"path": "pages/admin/college-evaluation",
+			"style": {
+				"navigationBarTitleText": "教师评教",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/admin/org-management",
+			"style": {
+				"navigationBarTitleText": "组织架构管理",
+				"navigationBarBackgroundColor": "#3E5C76",
+				"navigationBarTextStyle": "white"
+			}
 		}
 	],
 	"globalStyle": {

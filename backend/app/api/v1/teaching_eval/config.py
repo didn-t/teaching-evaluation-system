@@ -147,14 +147,24 @@ async def get_current_term(
     """
     from sqlalchemy import select
     
-    # 获取当前学年和学期配置
-    stmt = select(SystemConfig).where(SystemConfig.config_key.in_(["current_academic_year", "current_semester"]))
+    # 22300417陈俫坤开发：课表周次/日期映射由学校管理员配置学期起始日期；前端通过本接口获取
+    # - term_start_date: 学期第1周周一日期（YYYY-MM-DD）
+    # - total_weeks: 总周数（可选，默认20）
+    keys = [
+        "current_academic_year",
+        "current_semester",
+        "term_start_date",
+        "total_weeks",
+    ]
+    stmt = select(SystemConfig).where(SystemConfig.config_key.in_(keys))
     configs = await db.execute(stmt)
     config_list = configs.scalars().all()
     
     result = {
         "academic_year": None,
-        "semester": None
+        "semester": None,
+        "term_start_date": None,
+        "total_weeks": None,
     }
     
     for config in config_list:
@@ -162,6 +172,10 @@ async def get_current_term(
             result["academic_year"] = config.config_value
         elif config.config_key == "current_semester":
             result["semester"] = config.config_value
+        elif config.config_key == "term_start_date":
+            result["term_start_date"] = config.config_value
+        elif config.config_key == "total_weeks":
+            result["total_weeks"] = config.config_value
     
     return BaseResponse(code=200, msg="success", data=result)
 

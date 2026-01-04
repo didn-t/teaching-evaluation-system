@@ -19,7 +19,7 @@ from app.schemas import (
 from app.core.deps import get_current_user, require_access
 from app.crud.evaluation import evaluation_crud
 from app.crud.timetable import timetable_crud
-from app.models import TeachingEvaluation, User, Timetable
+from app.models import TeachingEvaluation, User, Timetable, College
 
 # 如果你暂时还没把 college/school 统计迁移到 evaluation_crud，
 # 可以先继续沿用旧函数（有的话就打开下面 import）
@@ -65,6 +65,7 @@ def _timetable_brief(tt) -> dict:
 )
 async def submit_evaluation(
     submit_data: EvaluationSubmit,
+    request: Request,
     current_user: TokenData = Depends(
         # 22300417陈俫坤开发：督导老师也需要参与听课并提交评教
         require_access(roles_any=("teacher", "supervisor"), perms_all=("evaluation:submit",))
@@ -77,10 +78,14 @@ async def submit_evaluation(
     - 不能对自己教授课程评教
     """
     try:
+        # 22300417陈俫坤开发：区分督导评教/教师互听评教（落库 TeachingEvaluation.eval_source）
+        roles = getattr(getattr(request, "state", None), "user_roles", [])
+        eval_source = "supervisor" if (roles and ("supervisor" in roles)) else "peer"
         ev = await evaluation_crud.submit(
             db,
             timetable_id=submit_data.timetable_id,
             listen_teacher_id=current_user.id,
+            eval_source=eval_source,
             total_score=submit_data.total_score,
             dimension_scores=submit_data.dimension_scores,
             listen_date=submit_data.listen_date,
@@ -103,9 +108,102 @@ async def submit_evaluation(
         data={
             "id": ev.id,
             "evaluation_no": ev.evaluation_no,
+            "eval_source": getattr(ev, "eval_source", None),
             "total_score": ev.total_score,
             "score_level": ev.score_level,
             "submit_time": _iso(ev.submit_time),
+        },
+    )
+
+
+@router.get(
+    "/pending-teachers",
+    summary="获取待评教师列表",
+    response_model=BaseResponse,
+)
+async def get_pending_teachers(
+    # 22300417陈俫坤开发：督导待评课程筛选模式B（先选 周次/星期/学院，再列出当天有课教师）
+    campus_id: Optional[int] = Query(None, ge=1, le=2, description="校区ID（1-南宁 2-桂林）"),
+    college_id: Optional[int] = Query(None, description="学院ID"),
+    week: Optional[int] = Query(None, ge=1, le=60, description="周次"),
+    weekday: Optional[int] = Query(None, ge=1, le=7, description="星期（1-7）"),
+    academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
+    semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    current_user: TokenData = Depends(
+        require_access(
+            roles_any=("teacher", "supervisor", "college_admin", "school_admin"),
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.crud.user import get_roles_code, get_effective_supervisor_scope
+
+    roles = await get_roles_code(db, current_user)
+    is_school_admin = "school_admin" in roles
+    is_college_admin = "college_admin" in roles
+    is_supervisor = "supervisor" in roles
+    is_college_scope = is_college_admin or is_supervisor
+    is_teacher_only = ("teacher" in roles) and (not is_school_admin) and (not is_college_scope)
+
+    allow_college_ids: list[int] = []
+    allow_room_ids: list[int] = []
+    if is_teacher_only or is_college_admin:
+        if getattr(current_user, "college_id", None):
+            allow_college_ids = [int(current_user.college_id)]
+    elif is_supervisor and (not is_school_admin):
+        allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
+
+    # 22300417陈俫坤开发：校区筛选（学院归属校区：College.campus_id）
+    if campus_id is not None:
+        res = await db.execute(
+            select(College.id).where(
+                College.campus_id == int(campus_id),
+                College.is_delete == False,  # noqa: E712
+            )
+        )
+        campus_college_ids = [int(x) for x in res.scalars().all()]
+        if allow_college_ids:
+            allow_college_ids = [cid for cid in allow_college_ids if cid in set(campus_college_ids)]
+        else:
+            allow_college_ids = campus_college_ids
+
+    # 22300417陈俫坤开发：学院筛选（与权限范围取交集；不在范围内则返回空）
+    if college_id is not None:
+        cid = int(college_id)
+        if allow_college_ids:
+            allow_college_ids = [cid] if cid in set(allow_college_ids) else [-1]
+        else:
+            allow_college_ids = [cid]
+
+    rows = await timetable_crud.list_pending_teachers_for_user(
+        db,
+        listen_teacher_id=current_user.id,
+        college_ids=allow_college_ids or None,
+        research_room_ids=allow_room_ids or None,
+        academic_year=academic_year,
+        semester=semester,
+        weekday=int(weekday) if weekday is not None else None,
+        week=int(week) if week is not None else None,
+    )
+
+    teacher_ids = [tid for tid, _ in rows]
+    teacher_map: dict[int, str] = {}
+    if teacher_ids:
+        res = await db.execute(select(User.id, User.user_name).where(User.id.in_(teacher_ids)))
+        teacher_map = {int(uid): (uname or "") for uid, uname in res.all()}
+
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={
+            "list": [
+                {
+                    "teacher_id": tid,
+                    "teacher_name": teacher_map.get(tid),
+                    "course_count": cnt,
+                }
+                for tid, cnt in rows
+            ]
         },
     )
 
@@ -150,6 +248,9 @@ async def list_my_evaluations(
                 {
                     "id": x.id,
                     "evaluation_no": x.evaluation_no,
+                    # 22300417陈俫坤开发：为“我的评教”列表补齐课程信息，列表页可直接展示课程名与授课教师名
+                    "timetable": _timetable_brief(getattr(x, "timetable", None)),
+                    "teach_teacher_name": getattr(getattr(x, "teach_teacher", None), "user_name", None),
                     "timetable_id": x.timetable_id,
                     "teach_teacher_id": x.teach_teacher_id,
                     "total_score": x.total_score,
@@ -196,6 +297,9 @@ async def get_evaluation_list_compat(
                 {
                     "id": x.id,
                     "evaluation_no": x.evaluation_no,
+                    # 22300417陈俫坤开发：兼容旧接口也补齐课程信息（与 /mine 保持一致）
+                    "timetable": _timetable_brief(getattr(x, "timetable", None)),
+                    "teach_teacher_name": getattr(getattr(x, "teach_teacher", None), "user_name", None),
                     "timetable_id": x.timetable_id,
                     "teach_teacher_id": x.teach_teacher_id,
                     "total_score": x.total_score,
@@ -233,10 +337,15 @@ async def get_evaluation_detail(
     if not ev:
         raise HTTPException(status_code=404, detail="评教记录不存在")
 
-    if ev.listen_teacher_id != current_user.id:
+    # 22300417陈俫坤开发：评教详情允许“听课人(提交者)”或“授课老师(被评教者)”查看
+    if ev.listen_teacher_id != current_user.id and ev.teach_teacher_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权查看此评教记录")
 
     tt = await evaluation_crud.get_timetable(db, timetable_id=ev.timetable_id)
+
+    # 22300417陈俫坤开发：匿名评教在授课老师视角不返回评教人信息（前端用 is_anonymous 显示“匿名”）
+    is_teacher_view = ev.teach_teacher_id == current_user.id and ev.listen_teacher_id != current_user.id
+    hide_listener_identity = bool(ev.is_anonymous and is_teacher_view)
 
     return BaseResponse(
             code=200,
@@ -247,8 +356,8 @@ async def get_evaluation_detail(
                 "timetable": _timetable_brief(tt),
                 "teach_teacher_id": ev.teach_teacher_id,
                 "teach_teacher_name": getattr(ev.teach_teacher, "user_name", None) if ev.teach_teacher else None,
-                "listen_teacher_id": ev.listen_teacher_id,
-                "listen_teacher_name": getattr(ev.listen_teacher, "user_name", None) if ev.listen_teacher else None,
+                "listen_teacher_id": None if hide_listener_identity else ev.listen_teacher_id,
+                "listen_teacher_name": None if hide_listener_identity else (getattr(ev.listen_teacher, "user_name", None) if ev.listen_teacher else None),
                 "total_score": ev.total_score,
                 "dimension_scores": ev.dimension_scores,
                 "score_level": ev.score_level,
@@ -475,7 +584,7 @@ async def fetch_my_teacher_statistics(
     academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
     semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
     current_user: TokenData = Depends(
-        require_access(roles_any=("teacher",), perms_all=("evaluation:stats:teacher",))
+        require_access(roles_any=("teacher", "supervisor"))
     ),
     db: AsyncSession = Depends(get_db),
 ):
@@ -504,7 +613,7 @@ async def fetch_my_listen_statistics(
     academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
     semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
     current_user: TokenData = Depends(
-        require_access(roles_any=("teacher",), perms_all=("evaluation:stats:teacher",))
+        require_access(roles_any=("teacher", "supervisor"))
     ),
     db: AsyncSession = Depends(get_db),
 ):
@@ -516,16 +625,132 @@ async def fetch_my_listen_statistics(
     - /statistics/listen/me：我作为听课教师提交的评教统计
     """
     try:
-        stat = await evaluation_crud.listen_statistics(
-            db,
-            listen_teacher_id=current_user.id,
-            academic_year=academic_year,
-            semester=semester,
-        )
+        from app.crud.user import get_roles_code
+        roles = await get_roles_code(db, current_user)
+        if roles and ("supervisor" in roles):
+            stat = await evaluation_crud.listen_statistics_supervisor(
+                db,
+                listen_teacher_id=current_user.id,
+                academic_year=academic_year,
+                semester=semester,
+            )
+        else:
+            stat = await evaluation_crud.listen_statistics(
+                db,
+                listen_teacher_id=current_user.id,
+                academic_year=academic_year,
+                semester=semester,
+            )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     return BaseResponse(code=200, msg="success", data=stat)
+
+
+# -----------------------------
+# 22300417陈俫坤开发：获取我收到的评教记录列表
+# -----------------------------
+@router.get(
+    "/received/me",
+    summary="获取我收到的评教记录列表",
+    response_model=BaseResponse,
+)
+async def get_my_received_evaluations(
+    listener_name: Optional[str] = Query(None, description="评教人姓名筛选"),
+    course_name: Optional[str] = Query(None, description="课程名称筛选"),
+    score_filter: Optional[str] = Query(None, description="评分筛选：high(>=80)/low(<60)"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    current_user: TokenData = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取当前用户作为授课教师收到的所有评教记录"""
+    from sqlalchemy import and_, or_
+    
+    # 基础查询：我作为授课教师收到的评教
+    filters = [
+        TeachingEvaluation.is_delete == False,
+    ]
+    
+    # 通过课表关联查询我的课程
+    stmt = (
+        select(TeachingEvaluation)
+        .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+        .where(Timetable.teacher_id == current_user.id)
+        .where(and_(*filters))
+    )
+    
+    # 课程名称筛选
+    if course_name:
+        stmt = stmt.where(Timetable.course_name.like(f"%{course_name}%"))
+    
+    # 评分筛选
+    if score_filter == 'high':
+        stmt = stmt.where(TeachingEvaluation.total_score >= 80)
+    elif score_filter == 'low':
+        stmt = stmt.where(TeachingEvaluation.total_score < 60)
+    
+    # 评教人姓名筛选
+    if listener_name:
+        stmt = stmt.join(User, TeachingEvaluation.listen_teacher_id == User.id).where(
+            User.user_name.like(f"%{listener_name}%")
+        )
+    
+    # 排序和分页
+    stmt = stmt.order_by(TeachingEvaluation.create_time.desc()).offset(skip).limit(limit)
+    
+    result = await db.execute(stmt)
+    evaluations = result.scalars().all()
+    
+    # 构建返回数据
+    records = []
+    for ev in evaluations:
+        # 获取课表信息
+        timetable = await db.get(Timetable, ev.timetable_id)
+        # 获取评教人信息
+        listener = await db.get(User, ev.listen_teacher_id) if ev.listen_teacher_id else None
+        
+        # 构建各维度评分详情（从JSON字段解析，转换为中文名称）
+        dimension_name_map = {
+            "teachingAttitude": "教学态度",
+            "teaching_attitude": "教学态度",
+            "content": "教学内容",
+            "teaching_content": "教学内容",
+            "method": "教学方法与手段",
+            "teaching_method": "教学方法与手段",
+            "effect": "教学效果",
+            "teaching_effect": "教学效果",
+        }
+        dimensions = []
+        if ev.dimension_scores and isinstance(ev.dimension_scores, dict):
+            for key, value in ev.dimension_scores.items():
+                display_name = dimension_name_map.get(key, key)
+                dimensions.append({"name": display_name, "score": value or 0})
+        
+        # 获取评语（可能在不同字段）
+        comment = ev.advantage_content or ev.problem_content or ev.improve_suggestion or ""
+        
+        records.append({
+            "id": ev.id,
+            "course_name": timetable.course_name if timetable else "",
+            "total_score": ev.total_score,
+            "listen_teacher_name": listener.user_name if listener else "匿名",
+            "eval_time": ev.create_time.strftime("%Y-%m-%d %H:%M") if ev.create_time else "",
+            "comment": comment,
+            "level": ev.score_level or "",
+            "dimensions": dimensions,
+        })
+    
+    # 获取总数
+    count_stmt = (
+        select(func.count(TeachingEvaluation.id))
+        .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+        .where(Timetable.teacher_id == current_user.id)
+        .where(and_(*filters))
+    )
+    total = (await db.execute(count_stmt)).scalar_one()
+    
+    return BaseResponse(code=200, msg="success", data={"list": records, "total": total})
 
 
 # -----------------------------
@@ -695,28 +920,13 @@ async def fetch_college_statistics(
     college_id: int,
     academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
     semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
-    current_user: TokenData = Depends(
-        require_access(
-            # 22300417陈俫坤开发：督导老师可查看负责范围（学院）统计
-            roles_any=("supervisor", "college_admin", "school_admin"),
-            perms_all=("evaluation:stats:college",),
-        )
-    ),
+    # 22300417陈俫坤开发：所有登录用户都可以查看学院统计排名
+    current_user: TokenData = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from app.crud.stats import get_college_statistics
-    from app.crud.user import get_roles_code
-    from app.crud.user import get_effective_supervisor_scope
 
-    # 22300417陈俫坤开发：督导角色权限检查 - 按配置范围查看统计
-    roles = await get_roles_code(db, current_user)
-    if "supervisor" in roles and "school_admin" not in roles:
-        # 22300417陈俫坤开发：按督导配置范围校验
-        allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
-        if not allow_college_ids and not allow_room_ids:
-            raise HTTPException(status_code=403, detail="督导未配置负责范围，无法查看统计")
-        if allow_college_ids and college_id not in allow_college_ids:
-            raise HTTPException(status_code=403, detail="督导无权查看该学院统计")
+    # 22300417陈俫坤开发：所有登录用户都可以查看学院统计排名，无需权限检查
     
     # 22300417陈俫坤开发：验证学院ID是否存在
     if college_id:
@@ -953,13 +1163,20 @@ async def export_school_evaluation(
 async def get_pending_courses(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+    # 22300417陈俫坤开发：督导待评课程筛选（模式A/模式B通用参数）
+    campus_id: Optional[int] = Query(None, ge=1, le=2, description="校区ID（1-南宁 2-桂林）"),
+    college_id: Optional[int] = Query(None, description="学院ID"),
+    week: Optional[int] = Query(None, ge=1, le=60, description="周次"),
+    weekday: Optional[int] = Query(None, ge=1, le=7, description="星期（1-7）"),
+    teacher_id: Optional[int] = Query(None, description="授课教师ID"),
     academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
     semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    course_name: Optional[str] = Query(None, description="课程名称（模糊匹配）"),
+    keyword: Optional[str] = Query(None, description="关键词（课程名/授课教师名 模糊匹配）"),
     current_user: TokenData = Depends(
         require_access(
             # 22300417陈俫坤开发：督导老师也可以查看待评课程
             roles_any=("teacher", "supervisor", "college_admin", "school_admin"),
-            perms_all=("timetable:view:self", "evaluation:submit"),
         )
     ),
     db: AsyncSession = Depends(get_db),
@@ -970,14 +1187,80 @@ async def get_pending_courses(
     新逻辑：以 TeachingEvaluation 是否存在 (timetable_id, listen_teacher_id=current_user.id) 来判断是否已评教。
     """
     skip = (page - 1) * page_size
+
+    # 22300417陈俫坤开发：支持 course_name 搜索 & “普通教师仅本学院 / 督导按范围” 数据范围限制
+    from app.crud.user import get_roles_code, get_effective_supervisor_scope
+
+    roles = await get_roles_code(db, current_user)
+    is_school_admin = "school_admin" in roles
+    is_college_admin = "college_admin" in roles
+    is_supervisor = "supervisor" in roles
+    is_college_scope = is_college_admin or is_supervisor
+    is_teacher_only = ("teacher" in roles) and (not is_school_admin) and (not is_college_scope)
+
+    # 22300417陈俫坤开发：范围限制
+    # - teacher（非督导/非学院管理员/非学校管理员）：仅本学院
+    # - college_admin：仅本学院
+    # - supervisor：按 supervisor_scope（无配置回退本学院）
+    # - school_admin：不限制
+
+    allow_college_ids: list[int] = []
+    allow_room_ids: list[int] = []
+    if is_teacher_only or is_college_admin:
+        if getattr(current_user, "college_id", None):
+            allow_college_ids = [int(current_user.college_id)]
+    elif is_supervisor and (not is_school_admin):
+        allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
+
+    if campus_id is not None:
+        res = await db.execute(
+            select(College.id).where(
+                College.campus_id == int(campus_id),
+                College.is_delete == False,  # noqa: E712
+            )
+        )
+        campus_college_ids = [int(x) for x in res.scalars().all()]
+        if allow_college_ids:
+            allow_college_ids = [cid for cid in allow_college_ids if cid in set(campus_college_ids)]
+        else:
+            allow_college_ids = campus_college_ids
+
+    if college_id is not None:
+        cid = int(college_id)
+        if allow_college_ids:
+            allow_college_ids = [cid] if cid in set(allow_college_ids) else [-1]
+        else:
+            allow_college_ids = [cid]
+
+    # 22300417陈俫坤开发：兼容旧参数 course_name；统一关键词 keyword 支持“课程名/授课教师名”搜索
+    search_kw = (keyword or course_name or "").strip() or None
+    teacher_ids_kw: list[int] = []
+    if search_kw:
+        res = await db.execute(select(User.id).where(User.user_name.like(f"%{search_kw}%")))
+        teacher_ids_kw = [int(x) for x in res.scalars().all()]
+
     items, total = await timetable_crud.list_pending_evaluation_for_user(
         db,
         listen_teacher_id=current_user.id,
+        course_name=search_kw,
+        teacher_ids=teacher_ids_kw or None,
+        teacher_id=int(teacher_id) if teacher_id is not None else None,
+        weekday=int(weekday) if weekday is not None else None,
+        week=int(week) if week is not None else None,
+        college_ids=allow_college_ids or None,
+        research_room_ids=allow_room_ids or None,
         academic_year=academic_year,
         semester=semester,
         skip=skip,
         limit=page_size,
     )
+
+    # 22300417陈俫坤开发：批量查询授课教师姓名，避免前端二次请求
+    teacher_ids = {int(x.teacher_id) for x in items if getattr(x, "teacher_id", None) is not None}
+    teacher_map: dict[int, str] = {}
+    if teacher_ids:
+        res = await db.execute(select(User.id, User.user_name).where(User.id.in_(teacher_ids)))
+        teacher_map = {int(uid): (uname or "") for uid, uname in res.all()}
 
     return BaseResponse(
         code=200,
@@ -992,6 +1275,7 @@ async def get_pending_courses(
                     "course_type": item.course_type,
                     "class_name": item.class_name,
                     "teacher_id": item.teacher_id,
+                    "teacher_name": teacher_map.get(int(item.teacher_id)) if getattr(item, "teacher_id", None) else None,
                     "weekday": item.weekday,
                     "weekday_text": item.weekday_text,
                     "period": item.period,
@@ -1021,6 +1305,8 @@ async def get_completed_courses(
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
     academic_year: Optional[str] = Query(None, description="学年（如2024-2025）"),
     semester: Optional[int] = Query(None, ge=1, le=2, description="学期 1-春季 2-秋季"),
+    course_name: Optional[str] = Query(None, description="课程名称（模糊匹配）"),
+    keyword: Optional[str] = Query(None, description="关键词（课程名/授课教师名 模糊匹配）"),
     current_user: TokenData = Depends(
         require_access(
             # 22300417陈俫坤开发：督导老师也可以查看已评课程
@@ -1035,14 +1321,71 @@ async def get_completed_courses(
     只要当前用户对某课表存在评教记录，即判定为“已评”。
     """
     skip = (page - 1) * page_size
+
+    # 22300417陈俫坤开发：支持 course_name 搜索 & “普通教师仅本学院 / 督导按范围” 数据范围限制
+    from app.crud.user import get_roles_code, get_effective_supervisor_scope
+
+    roles = await get_roles_code(db, current_user)
+    is_school_admin = "school_admin" in roles
+    is_college_admin = "college_admin" in roles
+    is_supervisor = "supervisor" in roles
+    is_college_scope = is_college_admin or is_supervisor
+    is_teacher_only = ("teacher" in roles) and (not is_school_admin) and (not is_college_scope)
+
+    # 22300417陈俫坤开发：范围限制
+    # - teacher（非督导/非学院管理员/非学校管理员）：仅本学院
+    # - college_admin：仅本学院
+    # - supervisor：按 supervisor_scope（无配置回退本学院）
+    # - school_admin：不限制
+    allow_college_ids: list[int] = []
+    allow_room_ids: list[int] = []
+    if is_teacher_only or is_college_admin:
+        if getattr(current_user, "college_id", None):
+            allow_college_ids = [int(current_user.college_id)]
+    elif is_supervisor and (not is_school_admin):
+        allow_college_ids, allow_room_ids = await get_effective_supervisor_scope(db, current_user=current_user)
+
+    # 22300417陈俫坤开发：兼容旧参数 course_name；统一关键词 keyword 支持“课程名/授课教师名”搜索
+    search_kw = (keyword or course_name or "").strip() or None
+    teacher_ids_kw: list[int] = []
+    if search_kw:
+        res = await db.execute(select(User.id).where(User.user_name.like(f"%{search_kw}%")))
+        teacher_ids_kw = [int(x) for x in res.scalars().all()]
+
     items, total = await timetable_crud.list_completed_evaluation_for_user(
         db,
         listen_teacher_id=current_user.id,
+        course_name=search_kw,
+        teacher_ids=teacher_ids_kw or None,
+        college_ids=allow_college_ids or None,
+        research_room_ids=allow_room_ids or None,
         academic_year=academic_year,
         semester=semester,
         skip=skip,
         limit=page_size,
     )
+
+    # 22300417陈俫坤开发：批量查询授课教师姓名，避免前端二次请求
+    teacher_ids = {int(x.teacher_id) for x in items if getattr(x, "teacher_id", None) is not None}
+    teacher_map: dict[int, str] = {}
+    if teacher_ids:
+        res = await db.execute(select(User.id, User.user_name).where(User.id.in_(teacher_ids)))
+        teacher_map = {int(uid): (uname or "") for uid, uname in res.all()}
+
+    # 22300417陈俫坤开发：补齐已评课程 -> 我的评教详情联动所需 evaluation_id
+    timetable_ids = [int(x.id) for x in items]
+    evaluation_map: dict[int, int] = {}
+    if timetable_ids:
+        eval_res = await db.execute(
+            select(TeachingEvaluation.timetable_id, func.max(TeachingEvaluation.id).label("evaluation_id"))
+            .where(
+                TeachingEvaluation.listen_teacher_id == current_user.id,
+                TeachingEvaluation.is_delete == False,  # noqa: E712
+                TeachingEvaluation.timetable_id.in_(timetable_ids),
+            )
+            .group_by(TeachingEvaluation.timetable_id)
+        )
+        evaluation_map = {int(tid): int(eid) for tid, eid in eval_res.all() if eid is not None}
 
     return BaseResponse(
         code=200,
@@ -1051,12 +1394,14 @@ async def get_completed_courses(
             "list": [
                 {
                     "id": item.id,
+                    "evaluation_id": evaluation_map.get(int(item.id)),
                     "academic_year": item.academic_year,
                     "semester": item.semester,
                     "course_name": item.course_name,
                     "course_type": item.course_type,
                     "class_name": item.class_name,
                     "teacher_id": item.teacher_id,
+                    "teacher_name": teacher_map.get(int(item.teacher_id)) if getattr(item, "teacher_id", None) else None,
                     "weekday": item.weekday,
                     "weekday_text": item.weekday_text,
                     "period": item.period,
@@ -1150,3 +1495,573 @@ async def update_course_type(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+
+# -----------------------------
+# 22300417陈俫坤开发：学院管理员评教管理接口
+# -----------------------------
+from app.models import TeacherProfile, ResearchRoom
+from app.crud.user import get_roles_code
+
+
+@router.get(
+    "/college/teacher-records",
+    summary="本院教师听课记录（非督导提交的评教）",
+    response_model=BaseResponse,
+)
+async def get_college_teacher_records(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    college_id: Optional[int] = Query(None, description="学院ID（school_admin可指定）"),
+    research_room_id: Optional[int] = Query(None, description="教研室ID"),
+    teacher_id: Optional[int] = Query(None, description="听课教师ID"),
+    current_user: TokenData = Depends(
+        require_access(roles_any=("college_admin", "school_admin"))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：学院管理员查看本院非督导教师提交的听课评教记录"""
+    # school_admin可以指定学院，college_admin只能查看本院
+    if college_id is None:
+        college_id = getattr(current_user, "college_id", None)
+    if not college_id:
+        raise HTTPException(status_code=403, detail="未指定学院")
+    college_id = int(college_id)
+    skip = (page - 1) * page_size
+    
+    # 查询本院非督导教师提交的评教（eval_source != 'supervisor' 或为空）
+    stmt = (
+        select(TeachingEvaluation)
+        .join(User, TeachingEvaluation.listen_teacher_id == User.id)
+        .where(
+            User.college_id == college_id,
+            TeachingEvaluation.is_delete == False,
+            # 非督导评教
+            (TeachingEvaluation.eval_source != "supervisor") | (TeachingEvaluation.eval_source == None),
+        )
+    )
+    
+    # 按教研室筛选
+    if research_room_id:
+        stmt = stmt.join(TeacherProfile, TeacherProfile.user_id == User.id).where(
+            TeacherProfile.research_room_id == research_room_id
+        )
+    
+    # 按听课教师筛选
+    if teacher_id:
+        stmt = stmt.where(TeachingEvaluation.listen_teacher_id == teacher_id)
+    
+    # 计算总数
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar_one()
+    
+    # 分页查询
+    stmt = stmt.order_by(TeachingEvaluation.create_time.desc()).offset(skip).limit(page_size)
+    result = await db.execute(stmt)
+    records = result.scalars().all()
+    
+    # 构造返回数据
+    data_list = []
+    for rec in records:
+        # 获取听课教师名
+        listen_teacher = await db.get(User, rec.listen_teacher_id)
+        listen_teacher_name = getattr(listen_teacher, "user_name", None) if listen_teacher else None
+        
+        # 获取被评教师名
+        tt = await db.get(Timetable, rec.timetable_id)
+        teacher_name = None
+        course_name = None
+        if tt:
+            course_name = tt.course_name
+            teacher = await db.get(User, tt.teacher_id)
+            teacher_name = getattr(teacher, "user_name", None) if teacher else None
+        
+        data_list.append({
+            "id": rec.id,
+            "evaluation_no": rec.evaluation_no,
+            "total_score": rec.total_score,
+            "listen_teacher_id": rec.listen_teacher_id,
+            "listen_teacher_name": listen_teacher_name,
+            "teacher_name": teacher_name,
+            "course_name": course_name,
+            "listen_date": _iso(rec.listen_date),
+            "status": rec.status,
+        })
+    
+    return BaseResponse(code=200, msg="success", data={"list": data_list, "total": total})
+
+
+@router.get(
+    "/college/received",
+    summary="本院老师收到的评教（督导评教）",
+    response_model=BaseResponse,
+)
+async def get_college_received_evaluations(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    college_id: Optional[int] = Query(None, description="学院ID（school_admin可指定）"),
+    research_room_id: Optional[int] = Query(None, description="教研室ID"),
+    teacher_id: Optional[int] = Query(None, description="被评教师ID"),
+    current_user: TokenData = Depends(
+        require_access(roles_any=("college_admin", "school_admin"))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：学院管理员查看本院老师收到的督导评教"""
+    if college_id is None:
+        college_id = getattr(current_user, "college_id", None)
+    if not college_id:
+        raise HTTPException(status_code=403, detail="未指定学院")
+    college_id = int(college_id)
+    skip = (page - 1) * page_size
+    
+    # 查询本院老师收到的督导评教
+    stmt = (
+        select(TeachingEvaluation)
+        .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+        .join(User, Timetable.teacher_id == User.id)
+        .where(
+            User.college_id == college_id,
+            TeachingEvaluation.is_delete == False,
+            TeachingEvaluation.eval_source == "supervisor",
+        )
+    )
+    
+    # 按教研室筛选（被评教师的教研室）
+    if research_room_id:
+        stmt = stmt.join(TeacherProfile, TeacherProfile.user_id == User.id).where(
+            TeacherProfile.research_room_id == research_room_id
+        )
+    
+    # 按被评教师筛选
+    if teacher_id:
+        stmt = stmt.where(Timetable.teacher_id == teacher_id)
+    
+    # 计算总数
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar_one()
+    
+    # 分页查询
+    stmt = stmt.order_by(TeachingEvaluation.create_time.desc()).offset(skip).limit(page_size)
+    result = await db.execute(stmt)
+    records = result.scalars().all()
+    
+    # 构造返回数据
+    data_list = []
+    for rec in records:
+        # 获取督导名
+        listen_teacher = await db.get(User, rec.listen_teacher_id)
+        listen_teacher_name = getattr(listen_teacher, "user_name", None) if listen_teacher else None
+        
+        # 获取被评教师名
+        tt = await db.get(Timetable, rec.timetable_id)
+        teacher_name = None
+        course_name = None
+        if tt:
+            course_name = tt.course_name
+            teacher = await db.get(User, tt.teacher_id)
+            teacher_name = getattr(teacher, "user_name", None) if teacher else None
+        
+        data_list.append({
+            "id": rec.id,
+            "evaluation_no": rec.evaluation_no,
+            "total_score": rec.total_score,
+            "listen_teacher_id": rec.listen_teacher_id,
+            "listen_teacher_name": listen_teacher_name,
+            "teacher_name": teacher_name,
+            "course_name": course_name,
+            "listen_date": _iso(rec.listen_date),
+            "status": rec.status,
+        })
+    
+    return BaseResponse(code=200, msg="success", data={"list": data_list, "total": total})
+
+
+@router.get(
+    "/college/pending-courses",
+    summary="本院待评课程",
+    response_model=BaseResponse,
+)
+async def get_college_pending_courses(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    college_id: Optional[int] = Query(None, description="学院ID（school_admin可指定）"),
+    research_room_id: Optional[int] = Query(None, description="教研室ID"),
+    teacher_id: Optional[int] = Query(None, description="授课教师ID"),
+    week: Optional[int] = Query(None, description="周次"),
+    weekday: Optional[int] = Query(None, description="星期"),
+    period: Optional[str] = Query(None, description="节次"),
+    current_user: TokenData = Depends(
+        require_access(roles_any=("college_admin", "school_admin"))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：学院管理员查看本院待评课程（尚未被评教的课表）"""
+    if college_id is None:
+        college_id = getattr(current_user, "college_id", None)
+    if not college_id:
+        raise HTTPException(status_code=403, detail="未指定学院")
+    college_id = int(college_id)
+    skip = (page - 1) * page_size
+    
+    # 查询本院课表中尚未被评教的课程
+    evaluated_subq = (
+        select(TeachingEvaluation.timetable_id)
+        .where(TeachingEvaluation.is_delete == False)
+        .distinct()
+    )
+    
+    stmt = (
+        select(Timetable)
+        .where(
+            Timetable.college_id == college_id,
+            Timetable.is_delete == False,
+            ~Timetable.id.in_(evaluated_subq),
+        )
+    )
+    
+    # 按教研室筛选
+    if research_room_id:
+        stmt = stmt.join(TeacherProfile, TeacherProfile.user_id == Timetable.teacher_id).where(
+            TeacherProfile.research_room_id == research_room_id
+        )
+    
+    # 按授课教师筛选
+    if teacher_id:
+        stmt = stmt.where(Timetable.teacher_id == teacher_id)
+    
+    # 按周次筛选
+    if week:
+        from sqlalchemy import or_
+        w = str(int(week))
+        stmt = stmt.where(
+            or_(
+                Timetable.week_info == w,
+                Timetable.week_info.like(f"{w},%"),
+                Timetable.week_info.like(f"%,{w},%"),
+                Timetable.week_info.like(f"%,{w}"),
+            )
+        )
+    
+    # 按星期筛选
+    if weekday:
+        stmt = stmt.where(Timetable.weekday == weekday)
+    
+    # 按节次筛选
+    if period:
+        stmt = stmt.where(Timetable.period == period)
+    
+    # 计算总数
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar_one()
+    
+    # 分页查询
+    stmt = stmt.order_by(Timetable.weekday, Timetable.period).offset(skip).limit(page_size)
+    result = await db.execute(stmt)
+    courses = result.scalars().all()
+    
+    # 构造返回数据
+    data_list = []
+    for course in courses:
+        teacher = await db.get(User, course.teacher_id)
+        teacher_name = getattr(teacher, "user_name", None) if teacher else None
+        
+        data_list.append({
+            "id": course.id,
+            "course_name": course.course_name,
+            "teacher_id": course.teacher_id,
+            "teacher_name": teacher_name,
+            "weekday": course.weekday,
+            "weekday_text": course.weekday_text,
+            "period": course.period,
+            "classroom": course.classroom,
+            "week_info": course.week_info,
+        })
+    
+    return BaseResponse(code=200, msg="success", data={"list": data_list, "total": total})
+
+
+@router.get(
+    "/college/completed-courses",
+    summary="本院已评课程",
+    response_model=BaseResponse,
+)
+async def get_college_completed_courses(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    college_id: Optional[int] = Query(None, description="学院ID（school_admin可指定）"),
+    research_room_id: Optional[int] = Query(None, description="教研室ID"),
+    teacher_id: Optional[int] = Query(None, description="授课教师ID"),
+    week: Optional[int] = Query(None, description="周次"),
+    weekday: Optional[int] = Query(None, description="星期"),
+    period: Optional[str] = Query(None, description="节次"),
+    current_user: TokenData = Depends(
+        require_access(roles_any=("college_admin", "school_admin"))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：学院管理员查看本院已评课程（已被评教的课表及评教信息）"""
+    if college_id is None:
+        college_id = getattr(current_user, "college_id", None)
+    if not college_id:
+        raise HTTPException(status_code=403, detail="未指定学院")
+    college_id = int(college_id)
+    skip = (page - 1) * page_size
+    
+    # 查询本院已被评教的课程
+    stmt = (
+        select(TeachingEvaluation, Timetable)
+        .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+        .where(
+            Timetable.college_id == college_id,
+            Timetable.is_delete == False,
+            TeachingEvaluation.is_delete == False,
+        )
+    )
+    
+    # 按教研室筛选
+    if research_room_id:
+        stmt = stmt.join(TeacherProfile, TeacherProfile.user_id == Timetable.teacher_id).where(
+            TeacherProfile.research_room_id == research_room_id
+        )
+    
+    # 按授课教师筛选
+    if teacher_id:
+        stmt = stmt.where(Timetable.teacher_id == teacher_id)
+    
+    # 按周次筛选
+    if week:
+        from sqlalchemy import or_
+        w = str(int(week))
+        stmt = stmt.where(
+            or_(
+                Timetable.week_info == w,
+                Timetable.week_info.like(f"{w},%"),
+                Timetable.week_info.like(f"%,{w},%"),
+                Timetable.week_info.like(f"%,{w}"),
+            )
+        )
+    
+    # 按星期筛选
+    if weekday:
+        stmt = stmt.where(Timetable.weekday == weekday)
+    
+    # 按节次筛选
+    if period:
+        stmt = stmt.where(Timetable.period == period)
+    
+    # 计算总数
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total = (await db.execute(count_stmt)).scalar_one()
+    
+    # 分页查询
+    stmt = stmt.order_by(TeachingEvaluation.create_time.desc()).offset(skip).limit(page_size)
+    result = await db.execute(stmt)
+    rows = result.all()
+    
+    # 构造返回数据
+    data_list = []
+    for evaluation, course in rows:
+        # 获取授课教师名
+        teacher = await db.get(User, course.teacher_id)
+        teacher_name = getattr(teacher, "user_name", None) if teacher else None
+        
+        # 获取听课教师名
+        listen_teacher = await db.get(User, evaluation.listen_teacher_id)
+        listen_teacher_name = getattr(listen_teacher, "user_name", None) if listen_teacher else None
+        
+        data_list.append({
+            "id": evaluation.id,
+            "evaluation_no": evaluation.evaluation_no,
+            "course_name": course.course_name,
+            "teacher_id": course.teacher_id,
+            "teacher_name": teacher_name,
+            "listen_teacher_id": evaluation.listen_teacher_id,
+            "listen_teacher_name": listen_teacher_name,
+            "total_score": evaluation.total_score,
+            "listen_date": _iso(evaluation.listen_date),
+            "weekday": course.weekday,
+            "weekday_text": course.weekday_text,
+            "period": course.period,
+            "classroom": course.classroom,
+            "week_info": course.week_info,
+        })
+    
+    return BaseResponse(code=200, msg="success", data={"list": data_list, "total": total})
+
+
+@router.get(
+    "/college/statistics/listen",
+    summary="本院教师听课统计",
+    response_model=BaseResponse,
+)
+async def get_college_listen_statistics(
+    college_id: Optional[int] = Query(None, description="学院ID（school_admin可指定）"),
+    academic_year: Optional[str] = Query(None, description="学年"),
+    semester: Optional[int] = Query(None, description="学期"),
+    current_user: TokenData = Depends(
+        require_access(roles_any=("college_admin", "school_admin"))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：学院管理员查看本院教师听课统计（完成/未完成清单）"""
+    if college_id is None:
+        college_id = getattr(current_user, "college_id", None)
+    if not college_id:
+        raise HTTPException(status_code=403, detail="未指定学院")
+    college_id = int(college_id)
+    
+    # 获取本院所有教师
+    teacher_stmt = select(User.id, User.user_name).where(
+        User.college_id == college_id,
+        User.is_delete == False,
+    )
+    teacher_result = await db.execute(teacher_stmt)
+    teachers = teacher_result.all()
+    
+    # 统计每个教师的听课次数（非督导评教）
+    teacher_stats = []
+    completed_count = 0
+    required_count = 1  # 默认要求至少听课1次，可配置
+    
+    for teacher_id, teacher_name in teachers:
+        # 查询该教师提交的评教数量
+        eval_stmt = select(func.count(TeachingEvaluation.id)).where(
+            TeachingEvaluation.listen_teacher_id == teacher_id,
+            TeachingEvaluation.is_delete == False,
+            (TeachingEvaluation.eval_source != "supervisor") | (TeachingEvaluation.eval_source == None),
+        )
+        if academic_year:
+            eval_stmt = eval_stmt.join(Timetable, TeachingEvaluation.timetable_id == Timetable.id).where(
+                Timetable.academic_year == academic_year
+            )
+        if semester:
+            if academic_year:
+                eval_stmt = eval_stmt.where(Timetable.semester == semester)
+            else:
+                eval_stmt = eval_stmt.join(Timetable, TeachingEvaluation.timetable_id == Timetable.id).where(
+                    Timetable.semester == semester
+                )
+        
+        listen_count = (await db.execute(eval_stmt)).scalar_one()
+        
+        teacher_stats.append({
+            "teacher_id": teacher_id,
+            "teacher_name": teacher_name,
+            "listen_count": listen_count,
+        })
+        
+        if listen_count >= required_count:
+            completed_count += 1
+    
+    # 按听课次数降序排列
+    teacher_stats.sort(key=lambda x: x["listen_count"], reverse=True)
+    
+    return BaseResponse(code=200, msg="success", data={
+        "total_teachers": len(teachers),
+        "completed_count": completed_count,
+        "incomplete_count": len(teachers) - completed_count,
+        "required_count": required_count,
+        "teachers": teacher_stats,
+    })
+
+
+@router.get(
+    "/college/statistics/received",
+    summary="本院教师被听统计",
+    response_model=BaseResponse,
+)
+async def get_college_received_statistics(
+    college_id: Optional[int] = Query(None, description="学院ID（school_admin可指定）"),
+    academic_year: Optional[str] = Query(None, description="学年"),
+    semester: Optional[int] = Query(None, description="学期"),
+    current_user: TokenData = Depends(
+        require_access(roles_any=("college_admin", "school_admin"))
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：学院管理员查看本院教师被听统计（督导评分分布、排名）"""
+    if college_id is None:
+        college_id = getattr(current_user, "college_id", None)
+    if not college_id:
+        raise HTTPException(status_code=403, detail="未指定学院")
+    college_id = int(college_id)
+    
+    # 查询本院教师收到的督导评教
+    stmt = (
+        select(TeachingEvaluation)
+        .join(Timetable, TeachingEvaluation.timetable_id == Timetable.id)
+        .join(User, Timetable.teacher_id == User.id)
+        .where(
+            User.college_id == college_id,
+            TeachingEvaluation.is_delete == False,
+            TeachingEvaluation.eval_source == "supervisor",
+        )
+    )
+    
+    if academic_year:
+        stmt = stmt.where(Timetable.academic_year == academic_year)
+    if semester:
+        stmt = stmt.where(Timetable.semester == semester)
+    
+    result = await db.execute(stmt)
+    evaluations = result.scalars().all()
+    
+    # 统计
+    total_received = len(evaluations)
+    total_score = 0
+    score_distribution = {"优秀": 0, "良好": 0, "一般": 0, "合格": 0, "不合格": 0}
+    teacher_data = {}  # teacher_id -> {name, scores: []}
+    
+    for ev in evaluations:
+        score = ev.total_score or 0
+        total_score += score
+        
+        # 5档评分分布
+        if score >= 90:
+            score_distribution["优秀"] += 1
+        elif score >= 80:
+            score_distribution["良好"] += 1
+        elif score >= 70:
+            score_distribution["一般"] += 1
+        elif score >= 60:
+            score_distribution["合格"] += 1
+        else:
+            score_distribution["不合格"] += 1
+        
+        # 按教师聚合
+        tt = await db.get(Timetable, ev.timetable_id)
+        if tt:
+            tid = tt.teacher_id
+            if tid not in teacher_data:
+                teacher = await db.get(User, tid)
+                teacher_data[tid] = {
+                    "teacher_id": tid,
+                    "teacher_name": getattr(teacher, "user_name", None) if teacher else None,
+                    "scores": [],
+                }
+            teacher_data[tid]["scores"].append(score)
+    
+    avg_score = total_score / total_received if total_received > 0 else 0
+    
+    # 教师排名
+    teacher_ranking = []
+    for tid, data in teacher_data.items():
+        scores = data["scores"]
+        avg = sum(scores) / len(scores) if scores else 0
+        teacher_ranking.append({
+            "teacher_id": tid,
+            "teacher_name": data["teacher_name"],
+            "avg_score": avg,
+            "received_count": len(scores),
+        })
+    
+    # 按平均分降序排列
+    teacher_ranking.sort(key=lambda x: x["avg_score"], reverse=True)
+    
+    return BaseResponse(code=200, msg="success", data={
+        "total_received": total_received,
+        "avg_score": avg_score,
+        "score_distribution": score_distribution,
+        "teacher_ranking": teacher_ranking,
+    })

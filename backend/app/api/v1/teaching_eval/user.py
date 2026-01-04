@@ -12,7 +12,7 @@ from app.crud.user import (
 from app.crud.user import get_supervisor_scope_ids, set_supervisor_scope_ids
 from app.core import hash_password, create_access_token, verify_password
 from app.core.deps import get_current_user, require_access
-from app.models import Role, UserRole, College
+from app.models import Role, UserRole, College, TeacherProfile, ResearchRoom
 
 router = APIRouter(prefix="", tags=["用户"])
 
@@ -31,6 +31,8 @@ def set_token_in_response(request: Request, user):
 async def user_payload_with_college(db: AsyncSession, user):
     """22300417陈俫坤开发：补齐 college_name，便于小程序个人信息页展示与编辑学院"""
     college_name = None
+    research_room_id = None
+    research_room_name = None
     try:
         if getattr(user, "college_id", None):
             college = await db.get(College, user.college_id)
@@ -38,14 +40,69 @@ async def user_payload_with_college(db: AsyncSession, user):
     except Exception:
         college_name = None
 
+    try:
+        res = await db.execute(
+            select(TeacherProfile.research_room_id)
+            .where(
+                TeacherProfile.user_id == user.id,
+                TeacherProfile.is_delete == False,  # noqa: E712
+            )
+            .limit(1)
+        )
+        research_room_id = res.scalar_one_or_none()
+        if research_room_id:
+            room = await db.get(ResearchRoom, research_room_id)
+            research_room_name = getattr(room, "room_name", None) if room else None
+    except Exception:
+        research_room_id = None
+        research_room_name = None
+
     return {
         "id": user.id,
         "user_on": user.user_on,
         "user_name": user.user_name,
         "college_id": user.college_id,
         "college_name": college_name,
+        # 22300417陈俫坤开发：教师可同时属于学院与教研室
+        "research_room_id": research_room_id,
+        "research_room_name": research_room_name,
         "status": user.status,
     }
+
+
+@router.get("/research-rooms", summary="教研室列表（个人资料选择）")
+async def list_research_rooms_for_profile(
+    college_id: Optional[int] = Query(None, description="学院ID（不传则默认当前用户学院）"),
+    current_user: TokenData = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """22300417陈俫坤开发：个人资料编辑页使用的教研室下拉列表
+
+    教师仅允许选择本学院教研室（默认用 current_user.college_id 过滤）。
+    """
+    cid = college_id
+    if cid is None and getattr(current_user, "college_id", None):
+        cid = int(current_user.college_id)
+
+    stmt = select(ResearchRoom).where(ResearchRoom.is_delete == False)  # noqa: E712
+    if cid is not None:
+        stmt = stmt.where(ResearchRoom.college_id == cid)
+
+    rows = list((await db.execute(stmt.order_by(ResearchRoom.id.asc()))).scalars().all())
+    return BaseResponse(
+        code=200,
+        msg="success",
+        data={
+            "list": [
+                {
+                    "id": int(x.id),
+                    "college_id": int(x.college_id),
+                    "room_name": x.room_name,
+                }
+                for x in rows
+            ]
+        },
+    )
 
 
 @router.post("/register", summary="用户注册")

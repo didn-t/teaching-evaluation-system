@@ -2,7 +2,7 @@
 	<view class="login-container">
 		<!-- Logo区域 -->
 		<view class="logo-section">
-			<image src="/static/logo.png" class="logo" mode="aspectFit"></image>
+			<image :src="logoUrl" class="logo" mode="aspectFit"></image>
 			<text class="title">南宁理工学院</text>
 			<text class="subtitle">听课评教系统</text>
 		</view>
@@ -62,6 +62,7 @@ export default {
 	name: 'login',
 	data() {
 		return {
+			logoUrl: '/static/logo.png',
 			form: {
 				user_on: '',
 				password: ''

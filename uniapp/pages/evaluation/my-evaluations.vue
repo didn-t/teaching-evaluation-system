@@ -59,13 +59,14 @@
 			<view class="evaluations-list" v-if="evaluations.length > 0">
 				<view class="evaluation-item" v-for="(item, index) in evaluations" :key="index" @tap="viewDetail(item.id)">
 					<view class="item-header">
-						<text class="course-name">评教编号：{{ item.evaluation_no || 'N/A' }}</text>
+						<text class="course-name">{{ (item.timetable && item.timetable.course_name) ? item.timetable.course_name : 'N/A' }}</text>
 						<text class="status" :class="getStatusClass(item.status)">
 							{{ getStatusText(item.status) }}
 						</text>
 					</view>
 					
 					<view class="item-info">
+						<text class="evaluate-date">授课教师：{{ item.teach_teacher_name || item.teach_teacher_id || 'N/A' }}</text>
 						<text class="evaluate-date">评教时间：{{ item.submit_time ? new Date(item.submit_time).toLocaleString() : 'N/A' }}</text>
 					</view>
 					
